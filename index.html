@@ -1,0 +1,1977 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>תכנון וניסוח צוואה ⚖️</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+  <style>
+    body{margin:0}
+    #loading{position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:#1e2d5a;color:white;font-family:Arial,sans-serif;font-size:18px;flex-direction:column;gap:16px;z-index:9999}
+    .sp{width:40px;height:40px;border:4px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div id="loading"><div class="sp"></div><div>טוען...</div></div>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useMemo, useRef, useEffect } = React;
+
+const AUDIO_MAP = {};
+
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&family=Frank+Ruhl+Libre:wght@400;500;700&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  input, select, textarea { font-family: 'Heebo', Arial, sans-serif; font-size: 14px; border: 1.5px solid #d0ccc2; border-radius: 8px; padding: 9px 12px; width: 100%; background: #fff; color: #1a2040; transition: border 0.2s, box-shadow 0.2s; outline: none; direction: rtl; }
+  input:focus, select:focus, textarea:focus { border-color: #2a4a8f; box-shadow: 0 0 0 3px rgba(42,74,143,0.12); }
+  textarea { resize: vertical; min-height: 70px; }
+  select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%232a4a8f' d='M1 1l5 5 5-5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: left 10px center; padding-left: 30px; }
+  button { cursor: pointer; font-family: 'Heebo', Arial, sans-serif; }
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: #c0bbb0; border-radius: 3px; }
+  @keyframes audioBar0 { from { height: 4px; } to { height: 12px; } }
+  @keyframes audioBar1 { from { height: 8px; } to { height: 4px; } }
+  @keyframes audioBar2 { from { height: 4px; } to { height: 10px; } }
+`;
+
+
+const C = { navy:"#1e2d5a", navyDark:"#141e3e", navyLight:"#2a4a8f", gold:"#b8921c", goldLight:"#d4a827", goldPale:"#fdf4de", border:"#ddd8ce", text:"#1a2040", textMuted:"#5a6380", textLight:"#8a90a2", success:"#1a6e3c", successBg:"#e8f5ee", error:"#8b1a1a", errorBg:"#fdf0f0", white:"#ffffff" };
+
+const RELATION_LABELS = { spouse:"בן/בת זוג", child:"ילד/ה", parent:"הורה", sibling:"אח/ות", relative:"קרוב/ת משפחה", friend:"חבר/ה", organization:"עמותה/ארגון", other:"אחר" };
+const ASSET_TYPE_LABELS = {
+  real_estate:'🏠 נדל"ן',
+  bank_account:"🏦 חשבון בנק",
+  investment:"📈 השקעות/קופות",
+  vehicle:"🚗 רכב",
+  valuables:"💎 תכשיטים/חפצי ערך",
+  business:"🏢 עסק",
+  insurance:"🛡️ ביטוח חיים / מנהלים",
+  digital:"💻 נכסים דיגיטליים",
+  other:"📦 אחר"
+};
+const DIGITAL_SUB_TYPES = { email:"📧 אימייל", drive:"☁️ דרייב / אחסון", photos:"🖼️ תמונות", creations:"🎨 יצירות / קבצים", websites:"🌐 אתרים / דומיינים", other:"📁 אחר" };
+
+const mkPerson = () => ({ full_name:"", id_number:"", address:"", phone:"", email:"" });
+const mkBen = (i) => ({ beneficiary_id:`b${i}`, full_name:"", id_number:"", address:"", relation:"child", is_minor:false });
+const mkAsset = (i) => ({ asset_id:`a${i}`, asset_type:"real_estate", label:"", notes:"",
+  // real_estate
+  re_address:"", include_contents:"none", contents_exceptions:[],
+  // bank
+  bank_name:"", account_number:"", branch:"",
+  // vehicle
+  license_plate:"", vehicle_make:"", vehicle_model:"",
+  // business
+  company_number:"", business_address:"",
+  // insurance
+  policy_number:"", insurer:"", insurance_current_beneficiary:"", insurance_to_beneficiary:"",
+  // digital
+  digital_sub_types:[], digital_scope:"all", digital_other_detail:"", digital_passwords:"",
+  // investment / valuables
+  identifier:"",
+  // other
+  other_description:""
+});
+const mkDebt = (i) => ({ debt_id:`d${i}`, creditor_name:"", amount:"", currency:"ILS", notes:"" });
+const mkCredit = (i) => ({ credit_id:`c${i}`, debtor_name:"", amount:"", currency:"ILS", notes:"" });
+const mkGift = (i) => ({ gift_id:`g${i}`, gift_type:"asset", asset_id:"", bank_account_id:"", amount:"", currency:"ILS", items:[], to_beneficiary_id:"", to_beneficiaries:[], multi_ben:false, fallback_beneficiary_id:"", fallback_type:"person", fallback_free_text:"" });
+const INIT_NO_CONTEST = { enabled:false, penalty:"equal_share", other_name:"", other_id:"", other_address:"" };
+
+const INITIAL = {
+  meta:{ doc_version:"1.0", generation_date:new Date().toISOString().slice(0,10) },
+  will:{ type:"", signature_mode:"" },
+  parties:{ testators:[mkPerson()], beneficiaries:[], executor:null, alt_executor:null, trustee:null, witnesses:[mkPerson(),mkPerson()] },
+  assets:[], debts:[], credits:[],
+  distributions:{ specific_gifts:[], residual:{mode:"equal",percentages:[]}, predeceased_rule:{mode:"descendants"}, minor_trust:{enabled:false,trust_age_until:21,release_age:21}, mutual_options:{first_death_mode:"all_to_survivor",first_death_split:{survivor_percent:50,children_percent:50},survivor_powers:"full",gift_cap_amount:50000,material_asset_definition:'דירת מגורים, רכב, חשבון בנק מעל 100,000 ₪',simultaneous_death_days:30} },
+  signature:{ date:new Date().toISOString().slice(0,10), city:"", testator_sign_line:true },
+  annexes:{ finance_beneficiaries_schedule:true },
+  output_choice:"",
+  no_contest:{ enabled:false, penalty:"equal_share", other_name:"", other_id:"", other_address:"" },
+  privacy_accepted: false
+};
+
+function AudioBtn({ label, audioKey }) {
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    return () => { if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } };
+  }, []);
+
+  const toggle = () => {
+    const src = audioKey && AUDIO_MAP[audioKey];
+    if (!src) return;
+    if (playing && audioRef.current) {
+      audioRef.current.pause();
+      setPlaying(false);
+      return;
+    }
+    if (!audioRef.current) {
+      setLoading(true);
+      const a = new Audio(src);
+      audioRef.current = a;
+      a.oncanplaythrough = () => setLoading(false);
+      a.onended = () => { setPlaying(false); audioRef.current = null; };
+      a.onerror = () => { setPlaying(false); setLoading(false); audioRef.current = null; };
+    }
+    audioRef.current.play().then(() => setPlaying(true)).catch(() => setLoading(false));
+  };
+
+  const hasAudio = !!(audioKey && AUDIO_MAP[audioKey]);
+  return (
+    <button onClick={toggle} disabled={!hasAudio}
+      title={hasAudio ? `האזן: ${label}` : "אין קובץ קול"}
+      style={{background:playing?C.goldPale:loading?"#fff8e6":"#f4f2ed",border:`1.5px solid ${playing||loading?C.gold:hasAudio?C.gold:C.border}`,borderRadius:20,padding:"4px 12px",fontSize:11,color:playing||loading?C.gold:hasAudio?C.gold:C.textLight,display:"inline-flex",alignItems:"center",gap:5,cursor:hasAudio?"pointer":"default",transition:"all 0.2s",boxShadow:playing?"0 0 0 3px rgba(184,146,28,0.15)":"none"}}>
+      <span style={{fontSize:13}}>{loading?"⏳":playing?"⏸":"🔊"}</span>
+      <span>{loading?"טוען...":playing?"עצור":"הסבר קולי"}</span>
+      {playing && <span style={{display:"inline-flex",gap:2,alignItems:"center"}}>
+        {[0,1,2].map(i=>(
+          <span key={i} style={{display:"inline-block",width:2,background:C.gold,borderRadius:1,animation:`audioBar${i} 0.6s ease-in-out ${i*0.15}s infinite alternate`,height:8}}/>
+        ))}
+      </span>}
+    </button>
+  );
+}
+
+function Accordion({ title, children, icon="ℹ️", defaultOpen=false }) {
+  const [o,setO] = useState(defaultOpen);
+  return <div style={{border:`1px solid ${C.border}`,borderRadius:9,overflow:"hidden",marginBottom:10}}>
+    <button onClick={()=>setO(!o)} style={{width:"100%",background:o?C.goldPale:"#f7f5f0",border:"none",padding:"10px 14px",textAlign:"right",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,color:C.navy,cursor:"pointer"}}>
+      <span>{icon} {title}</span><span style={{color:C.gold,transform:o?"rotate(180deg)":"none",transition:"transform 0.2s"}}>▾</span>
+    </button>
+    {o && <div style={{padding:"12px 14px",background:C.white,fontSize:13,lineHeight:1.75,color:C.text,borderTop:`1px solid ${C.border}`}}>{children}</div>}
+  </div>;
+}
+
+function InfoNote({ type="info", children }) {
+  const s = {info:{bg:"#eef3fc",b:"#2a4a8f",i:"ℹ️"},warning:{bg:"#fff8e6",b:C.gold,i:"⚠️"},important:{bg:C.errorBg,b:C.error,i:"❗"}}[type];
+  return <div style={{background:s.bg,borderRight:`4px solid ${s.b}`,borderRadius:"0 8px 8px 0",padding:"9px 12px",marginBottom:10,fontSize:13,lineHeight:1.65,color:C.text}}>{s.i} {children}</div>;
+}
+
+function Label({ children, required }) {
+  return <label style={{display:"block",fontSize:13,fontWeight:600,color:C.navy,marginBottom:4}}>{children}{required&&<span style={{color:C.error,marginRight:3}}>*</span>}</label>;
+}
+
+function FieldRow({ children, cols=2 }) {
+  return <div style={{display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:10,marginBottom:10}}>{children}</div>;
+}
+
+function Tag({ children, color=C.navy }) {
+  return <span style={{background:color,color:C.white,borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:600}}>{children}</span>;
+}
+
+function ChoiceCard({ selected, onClick, title, subtitle, icon }) {
+  return <div onClick={onClick} style={{border:`2px solid ${selected?C.navyLight:C.border}`,borderRadius:11,padding:"14px 16px",cursor:"pointer",background:selected?"#eef3fc":C.white,transition:"all 0.2s",display:"flex",alignItems:"flex-start",gap:12,boxShadow:selected?"0 2px 10px rgba(42,74,143,0.12)":"0 1px 3px rgba(0,0,0,0.04)",marginBottom:10}}>
+    <div style={{fontSize:24,flexShrink:0}}>{icon}</div>
+    <div style={{flex:1}}>
+      <div style={{fontWeight:700,color:selected?C.navyLight:C.text,fontSize:14,marginBottom:3}}>{title}</div>
+      {subtitle&&<div style={{fontSize:12,color:C.textMuted,lineHeight:1.5}}>{subtitle}</div>}
+    </div>
+    <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${selected?C.navyLight:C.border}`,background:selected?C.navyLight:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>
+      {selected&&<span style={{color:C.white,fontSize:11}}>✓</span>}
+    </div>
+  </div>;
+}
+
+function PersonForm({ person, onChange, label, index, onRemove, showEmail=true }) {
+  const up = k => e => onChange({...person,[k]:e.target.value});
+  return <div style={{background:"#f7f5f0",borderRadius:9,padding:14,marginBottom:12,border:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:700,color:C.navy,fontSize:13}}>{label}{index!=null?` ${index+1}`:""}</span>
+      {onRemove&&<button onClick={onRemove} style={{background:"none",border:"none",color:C.error,fontSize:16,cursor:"pointer"}}>✕</button>}
+    </div>
+    <FieldRow><div><Label required>שם מלא</Label><input value={person.full_name} onChange={up("full_name")} placeholder="שם פרטי ושם משפחה"/></div><div><Label required>מספר ת.ז.</Label><input value={person.id_number} onChange={up("id_number")} placeholder="000000000" maxLength={9}/></div></FieldRow>
+    <div style={{marginBottom:10}}><Label required>כתובת</Label><input value={person.address} onChange={up("address")} placeholder="רחוב, מספר, עיר"/></div>
+    <FieldRow><div><Label>טלפון</Label><input value={person.phone||""} onChange={up("phone")} placeholder="05X-XXXXXXX"/></div>{showEmail&&<div><Label>אימייל</Label><input value={person.email||""} onChange={up("email")} placeholder="name@email.com" dir="ltr"/></div>}</FieldRow>
+  </div>;
+}
+
+function BenForm({ ben, onChange, index, onRemove }) {
+  const up = k => e => onChange({...ben,[k]:e.target.value});
+  const isOrg = ben.relation==="organization";
+  const isOther = ben.relation==="other";
+  return <div style={{background:"#f7f5f0",borderRadius:9,padding:14,marginBottom:12,border:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:700,color:C.navy,fontSize:13}}>מוטב {index+1}</span>
+      <button onClick={onRemove} style={{background:"none",border:"none",color:C.error,fontSize:16,cursor:"pointer"}}>✕</button>
+    </div>
+    <FieldRow>
+      <div><Label required>{isOrg?"שם העמותה / הארגון":"שם מלא"}</Label><input value={ben.full_name} onChange={up("full_name")} placeholder={isOrg?"שם העמותה...":"שם מלא"}/></div>
+      <div><Label required>{isOrg?"מספר עמותה / ח.פ.":"ת.ז."}</Label><input value={ben.id_number} onChange={up("id_number")} placeholder={isOrg?"580000000":"000000000"}/></div>
+    </FieldRow>
+    <FieldRow>
+      <div><Label required>קשר</Label><select value={ben.relation} onChange={up("relation")}>{Object.entries(RELATION_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
+      {!isOrg&&<div style={{display:"flex",flexDirection:"column",justifyContent:"flex-end"}}><label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",fontSize:13,paddingBottom:8}}><input type="checkbox" checked={ben.is_minor} onChange={e=>onChange({...ben,is_minor:e.target.checked})} style={{width:"auto"}}/>קטין/ה</label></div>}
+    </FieldRow>
+    <div style={{marginBottom:10}}><Label required>{isOrg?"כתובת העמותה":"כתובת"}</Label><input value={ben.address} onChange={up("address")} placeholder={isOrg?"כתובת העמותה":"רחוב, מספר, עיר"}/></div>
+    {isOrg&&<>
+      <FieldRow>
+        <div><Label>איש/אשת קשר</Label><input value={ben.org_contact||""} onChange={up("org_contact")} placeholder="שם איש הקשר"/></div>
+        <div><Label>טלפון</Label><input value={ben.org_phone||""} onChange={up("org_phone")} placeholder="050-0000000"/></div>
+      </FieldRow>
+      <div style={{marginBottom:10}}><Label>אימייל</Label><input value={ben.org_email||""} onChange={up("org_email")} placeholder="contact@org.org.il"/></div>
+      <div><Label>מטרת ההוראה / ייעוד התרומה (אופציונלי)</Label><textarea value={ben.org_purpose||""} onChange={up("org_purpose")} placeholder="לדוגמה: לקרן המלגות, לפעילות ספציפית..." style={{minHeight:45}}/></div>
+    </>}
+    {isOther&&<>
+      <div style={{marginBottom:10}}><Label>תיאור הקשר</Label><input value={ben.other_description||""} onChange={up("other_description")} placeholder="לדוגמה: שכן, עמית לעבודה..."/></div>
+      <div><Label>פרטים נוספים</Label><textarea value={ben.other_notes||""} onChange={up("other_notes")} placeholder="כל מידע רלוונטי נוסף..." style={{minHeight:45}}/></div>
+    </>}
+  </div>;
+}
+
+function AssetForm({ asset, onChange, index, onRemove }) {
+  const up = k => v => onChange({...asset,[k]:v});
+  const upE = k => e => onChange({...asset,[k]:e.target.value});
+  const t = asset.asset_type;
+
+  const toggleDigSub = (key) => {
+    const cur = asset.digital_sub_types||[];
+    up("digital_sub_types")(cur.includes(key) ? cur.filter(x=>x!==key) : [...cur, key]);
+  };
+
+  return <div style={{background:"#f7f5f0",borderRadius:9,padding:14,marginBottom:12,border:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:700,color:C.navy,fontSize:13}}>נכס {index+1}</span>
+      <button onClick={onRemove} style={{background:"none",border:"none",color:C.error,fontSize:16,cursor:"pointer"}}>✕</button>
+    </div>
+
+    {/* Type + Label */}
+    <FieldRow>
+      <div><Label required>סוג נכס</Label>
+        <select value={t} onChange={e=>up("asset_type")(e.target.value)}>
+          {Object.entries(ASSET_TYPE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+        </select>
+      </div>
+      <div><Label required>כינוי / תיאור קצר</Label>
+        <input value={asset.label} onChange={upE("label")} placeholder={t==="real_estate"?"דירה בתל אביב":t==="vehicle"?"טויוטה קורולה":t==="insurance"?"ביטוח מנהלים – מגדל":t==="business"?"עסק – מסעדת הים":""}/>
+      </div>
+    </FieldRow>
+
+    {/* ── נדל"ן ── */}
+    {t==="real_estate"&&<>
+      <div style={{marginBottom:10}}><Label>כתובת הנכס</Label><input value={asset.re_address} onChange={upE("re_address")} placeholder="רחוב הרצל 1, תל אביב, גוש/חלקה"/></div>
+      <div style={{marginBottom:10}}><Label>תכולה</Label>
+        <select value={asset.include_contents} onChange={upE("include_contents")}>
+          <option value="none">ללא תכולה</option><option value="all">כולל כל התכולה</option><option value="exceptions">כולל, למעט חריגים</option>
+        </select>
+        {asset.include_contents==="exceptions"&&<div style={{marginTop:7}}><Label>חריגים (הפרד בפסיק)</Label><input value={asset.contents_exceptions.join(", ")} onChange={e=>up("contents_exceptions")(e.target.value.split(",").map(s=>s.trim()).filter(Boolean))} placeholder="תכשיטים, מסמכים אישיים"/></div>}
+      </div>
+      <div><Label>הערות</Label><textarea value={asset.notes} onChange={upE("notes")} placeholder="הערות נוספות על הנכס" style={{minHeight:50}}/></div>
+    </>}
+
+    {/* ── חשבון בנק ── */}
+    {t==="bank_account"&&<>
+      <FieldRow>
+        <div><Label>שם הבנק</Label><input value={asset.bank_name} onChange={upE("bank_name")} placeholder="בנק הפועלים"/></div>
+        <div><Label>מספר חשבון</Label><input value={asset.account_number} onChange={upE("account_number")} placeholder="123456"/></div>
+      </FieldRow>
+      <div style={{marginBottom:10}}><Label>סניף</Label><input value={asset.branch} onChange={upE("branch")} placeholder="סניף 600 — דיזנגוף"/></div>
+    </>}
+
+    {/* ── השקעות / קופות ── */}
+    {t==="investment"&&<>
+      <div style={{marginBottom:10}}><Label>מספר פוליסה / חשבון</Label><input value={asset.identifier} onChange={upE("identifier")} placeholder="מספר חשבון / פוליסה"/></div>
+      <div><Label>הערות</Label><textarea value={asset.notes} onChange={upE("notes")} placeholder="פירוט נוסף" style={{minHeight:50}}/></div>
+    </>}
+
+    {/* ── תכשיטים וחפצי ערך ── */}
+    {t==="valuables"&&<>
+      <div style={{marginBottom:10}}><Label required>תיאור התכשיט / החפץ</Label><input value={asset.valuables_description||""} onChange={upE("valuables_description")} placeholder="שרשרת זהב עם תליון לב, תכשיט עתיק, שעון מותג..."/></div>
+      <div style={{marginBottom:10}}><Label>פרטים נוספים</Label><textarea value={asset.notes} onChange={upE("notes")} placeholder="מקור, גיל, ערך משוער, סיפור משפחתי..." style={{minHeight:50}}/></div>
+      <div style={{marginBottom:10}}>
+        <Label>צילום (אופציונלי)</Label>
+        <div style={{marginTop:5}}>
+          {asset.photo_url?<div style={{position:"relative",display:"inline-block"}}><img src={asset.photo_url} alt="תכשיט" style={{maxWidth:180,maxHeight:130,borderRadius:8,border:`1px solid ${C.border}`}}/><button onClick={()=>onChange({...asset,photo_url:"",photo_name:""})} style={{position:"absolute",top:-8,right:-8,background:"white",border:`1px solid ${C.error}`,color:C.error,borderRadius:"50%",width:22,height:22,fontSize:13,cursor:"pointer",lineHeight:"20px",textAlign:"center",padding:0}}>✕</button></div>
+          :<label style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 14px",borderRadius:8,border:`1.5px dashed ${C.navyLight}`,background:"#eef3fc",color:C.navyLight,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            📷 העלה תמונה
+            <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>onChange({...asset,photo_url:ev.target.result,photo_name:f.name});r.readAsDataURL(f);}}}/>
+          </label>}
+          {asset.photo_name&&<div style={{fontSize:11,color:C.textMuted,marginTop:4}}>📎 {asset.photo_name}</div>}
+        </div>
+      </div>
+    </>}
+
+    {/* ── רכב ── */}
+    {t==="vehicle"&&<>
+      <FieldRow>
+        <div><Label>מספר רישוי</Label><input value={asset.license_plate} onChange={upE("license_plate")} placeholder="12-345-67"/></div>
+        <div><Label>יצרן</Label><input value={asset.vehicle_make} onChange={upE("vehicle_make")} placeholder="Toyota"/></div>
+      </FieldRow>
+      <div style={{marginBottom:10}}><Label>דגם</Label><input value={asset.vehicle_model} onChange={upE("vehicle_model")} placeholder="Corolla 2021"/></div>
+    </>}
+
+    {/* ── עסק ── */}
+    {t==="business"&&<>
+      <FieldRow>
+        <div><Label>ח.פ / ע.מ</Label><input value={asset.company_number} onChange={upE("company_number")} placeholder="515000000"/></div>
+        <div><Label>כתובת העסק</Label><input value={asset.business_address} onChange={upE("business_address")} placeholder="רחוב המלאכה 5, פתח תקוה"/></div>
+      </FieldRow>
+      <div><Label>הערות</Label><textarea value={asset.notes} onChange={upE("notes")} placeholder="פירוט על העסק, שותפים, נכסים עסקיים" style={{minHeight:50}}/></div>
+    </>}
+
+    {/* ── ביטוח חיים / מנהלים ── */}
+    {t==="insurance"&&<>
+      <FieldRow>
+        <div><Label>חברת הביטוח</Label><input value={asset.insurer} onChange={upE("insurer")} placeholder="מגדל / מנורה / כלל..."/></div>
+        <div><Label>מספר פוליסה</Label><input value={asset.policy_number} onChange={upE("policy_number")} placeholder="12345678"/></div>
+      </FieldRow>
+      <FieldRow>
+        <div><Label>מוטב נוכחי בפוליסה</Label><input value={asset.insurance_current_beneficiary} onChange={upE("insurance_current_beneficiary")} placeholder="שם המוטב הנוכחי בפוליסה"/></div>
+        <div><Label>למי מיועד ע"פ הצוואה</Label><input value={asset.insurance_to_beneficiary} onChange={upE("insurance_to_beneficiary")} placeholder="שם היורש לפי הצוואה"/></div>
+      </FieldRow>
+      <InfoNote type="warning">עדכון מוטב בפוליסה נעשה ישירות אצל חברת הביטוח — אין תחליף לצוואה.</InfoNote>
+    </>}
+
+    {/* ── נכסים דיגיטליים ── */}
+    {t==="digital"&&<>
+      <div style={{marginBottom:10}}>
+        <Label>סוגי נכסים דיגיטליים</Label>
+        <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:5}}>
+          {Object.entries(DIGITAL_SUB_TYPES).map(([k,v])=>{
+            const sel=(asset.digital_sub_types||[]).includes(k);
+            return <label key={k} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",padding:"4px 10px",borderRadius:15,border:`1.5px solid ${sel?C.navyLight:C.border}`,background:sel?"#eef3fc":"white",fontSize:12,fontWeight:sel?600:400}}>
+              <input type="checkbox" checked={sel} onChange={()=>toggleDigSub(k)} style={{width:"auto",margin:0}}/>{v}
+            </label>;
+          })}
+        </div>
+        {(asset.digital_sub_types||[]).includes("other")&&<div style={{marginTop:8}}><Label>פירוט "אחר"</Label><input value={asset.digital_other_detail} onChange={upE("digital_other_detail")} placeholder="תאר את הנכס הדיגיטלי"/></div>}
+      </div>
+      <div style={{marginBottom:10}}>
+        <Label>היקף ההורשה</Label>
+        <select value={asset.digital_scope} onChange={upE("digital_scope")}>
+          <option value="all">כל הנכסים הדיגיטליים מהסוגים שנבחרו</option>
+          <option value="partial">חלק בלבד (פירוט בהערות)</option>
+        </select>
+      </div>
+      <div style={{marginBottom:10}}><Label>הערות / פירוט</Label><textarea value={asset.notes} onChange={upE("notes")} placeholder="פירוט נוסף על הנכסים" style={{minHeight:50}}/></div>
+      <div>
+        <Label>סיסמאות / פרטי גישה</Label>
+        <textarea value={asset.digital_passwords} onChange={upE("digital_passwords")} placeholder="רשום כאן שמות משתמש וסיסמאות — המסמך שמור בצורה פרטית" style={{minHeight:60}}/>
+        <InfoNote type="warning">מידע רגיש — שמור מסמך זה במקום בטוח ומוגן.</InfoNote>
+      </div>
+    </>}
+
+    {/* ── אחר ── */}
+    {t==="other"&&<>
+      <div style={{marginBottom:10}}><Label>תיאור מפורט</Label><textarea value={asset.other_description} onChange={upE("other_description")} placeholder="תאר את הנכס בפירוט" style={{minHeight:60}}/></div>
+      <div><Label>הערות</Label><textarea value={asset.notes} onChange={upE("notes")} placeholder="מידע נוסף" style={{minHeight:40}}/></div>
+    </>}
+  </div>;
+}
+
+function DebtForm({ debt, onChange, index, onRemove }) {
+  const up = k => e => onChange({...debt,[k]:e.target.value});
+  const isMoney = !debt.debt_type || debt.debt_type==="money";
+  return <div style={{background:"#fff5f5",borderRadius:9,padding:14,marginBottom:12,border:`1px solid #f5c5c5`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:700,color:C.error,fontSize:13}}>חוב {index+1}</span>
+      <button onClick={onRemove} style={{background:"none",border:"none",color:C.error,fontSize:16,cursor:"pointer"}}>✕</button>
+    </div>
+    <div style={{marginBottom:10}}>
+      <Label>סוג החוב</Label>
+      <select value={debt.debt_type||"money"} onChange={up("debt_type")}>
+        <option value="money">כספי</option>
+        <option value="object">חפץ / פריט שיש להחזיר</option>
+        <option value="other">אחר</option>
+      </select>
+    </div>
+    <FieldRow>
+      <div><Label required>שם הנושה / גוף מלווה</Label><input value={debt.creditor_name} onChange={up("creditor_name")} placeholder="בנק, אדם פרטי, חברה..."/></div>
+      <div><Label>טלפון</Label><input value={debt.phone||""} onChange={up("phone")} placeholder="050-0000000"/></div>
+    </FieldRow>
+    {isMoney&&<FieldRow>
+      <div><Label>סכום משוער</Label><input type="number" value={debt.amount} onChange={up("amount")} placeholder="0"/></div>
+      <div><Label>מטבע</Label><select value={debt.currency} onChange={up("currency")}><option value="ILS">₪</option><option value="USD">$</option><option value="EUR">€</option></select></div>
+    </FieldRow>}
+    {!isMoney&&<div style={{marginBottom:10}}><Label required>תיאור החפץ / החוב</Label><textarea value={debt.object_description||""} onChange={up("object_description")} placeholder="תאר את החפץ שיש להחזיר או את מהות החוב..." style={{minHeight:55}}/></div>}
+    <div><Label>הערות</Label><textarea value={debt.notes} onChange={up("notes")} placeholder="פרטים נוספים, מסמכים קיימים..." style={{minHeight:45}}/></div>
+  </div>;
+}
+
+function CreditForm({ credit, onChange, index, onRemove }) {
+  const up = k => e => onChange({...credit,[k]:e.target.value});
+  return <div style={{background:"#f0faf4",borderRadius:9,padding:14,marginBottom:12,border:"1px solid #a8d8b9"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontWeight:700,color:C.success,fontSize:13}}>💵 חוב {index+1}</span>
+      <button onClick={onRemove} style={{background:"none",border:"none",color:C.error,fontSize:16,cursor:"pointer"}}>✕</button>
+    </div>
+    <div style={{marginBottom:10}}><Label required>שם החייב</Label><input value={credit.debtor_name} onChange={up("debtor_name")} placeholder="שם האדם או הגוף החייב לי"/></div>
+    <FieldRow>
+      <div><Label>סכום משוער</Label><input type="number" value={credit.amount} onChange={up("amount")} placeholder="0"/></div>
+      <div><Label>מטבע</Label><select value={credit.currency} onChange={up("currency")}><option value="ILS">₪</option><option value="USD">$</option><option value="EUR">€</option></select></div>
+    </FieldRow>
+    <div><Label>פירוט / הסבר</Label><textarea value={credit.notes} onChange={up("notes")} placeholder="הלוואה שנתתי, שטר חוב, הסכם בעל פה..." style={{minHeight:45}}/></div>
+  </div>;
+}
+
+// ─── STEPS ───
+
+function LawRow({ bullet, children }) {
+  return (
+    <div style={{display:"flex",gap:8,marginBottom:9,alignItems:"flex-start"}}>
+      <span style={{color:C.gold,fontWeight:700,fontSize:14,flexShrink:0,marginTop:1}}>{bullet}</span>
+      <span style={{fontSize:13,lineHeight:1.7,color:C.text}}>{children}</span>
+    </div>
+  );
+}
+
+function StepWelcome({ data, setData }) {
+  return <div>
+    <div style={{textAlign:"center",marginBottom:18}}>
+      <div style={{fontSize:46,marginBottom:10}}>⚖️</div>
+      <h1 style={{fontFamily:"'Frank Ruhl Libre',Georgia,serif",fontSize:28,color:C.navy,marginBottom:7}}>תכנון וניסוח צוואה</h1>
+      <p style={{color:C.textMuted,fontSize:14}}>כלי מקיף להכנת צוואה מקצועית — פרטית או הדדית</p>
+      <div style={{marginTop:10}}><AudioBtn label="ברוכים הבאים" audioKey="welcome"/></div>
+    </div>
+    <div style={{background:"#f9f8f5",border:`2px solid ${data.privacy_accepted?C.success:C.navyLight}`,borderRadius:12,padding:"16px 18px",marginBottom:18,transition:"border-color 0.3s"}}>
+      <div style={{fontWeight:700,color:C.navy,fontSize:14,marginBottom:10}}>🔒 הצהרת פרטיות ותנאי שימוש</div>
+      <div style={{fontSize:12.5,lineHeight:1.9,color:C.text,marginBottom:14}}>
+        <div style={{marginBottom:8}}><strong>1. שמירת נתונים מקומית בלבד</strong> — כל הפרטים שתזינו (שמות, תעודות זהות, נכסים, יורשים) <strong>נשמרים אך ורק בדפדפן שלכם</strong>. אין שרת, אין מסד נתונים, אין ענן. הנתונים לא יועברו לאף גורם ללא אישורכם המפורש.</div>
+        <div style={{marginBottom:8}}><strong>2. שליחה לעורך דין</strong> — רק אם תבחרו בכך באופן פעיל בשלב "שלח לעו"ד", הטיוטה תועתק לשליחה. לא תתבצע שליחה אוטומטית.</div>
+        <div style={{marginBottom:8}}><strong>3. הכלי אינו תחליף לייעוץ משפטי</strong> — הכלי מסייע לתכנון ולניסוח ראשוני בלבד. לתוקף משפטי מלא יש לחתום בפני עדים / נוטריון / עורך דין בהתאם לחוק הירושה, התשכ"ה-1965.</div>
+        <div style={{marginBottom:8}}><strong>4. אחריות</strong> — מפעילי הכלי אינם אחראים לטעויות, השמטות או תוצאות משפטיות הנובעות משימוש בכלי ללא ייעוץ מקצועי.</div>
+        <div><strong>5. עוגיות ואנליטיקה</strong> — הכלי אינו משתמש בעוגיות מעקב ואינו אוסף נתוני שימוש.</div>
+      </div>
+      <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer",padding:"10px 13px",background:data.privacy_accepted?"#e8f5e9":"#eef3fc",borderRadius:8,border:`1.5px solid ${data.privacy_accepted?C.success:C.border}`,transition:"all 0.2s"}}>
+        <input type="checkbox" checked={data.privacy_accepted||false} onChange={e=>setData(d=>({...d,privacy_accepted:e.target.checked}))} style={{width:"auto",transform:"scale(1.3)",marginTop:2,flexShrink:0}}/>
+        <span style={{fontSize:13,fontWeight:600,color:data.privacy_accepted?C.success:C.navy,lineHeight:1.6}}>
+          {data.privacy_accepted?"✅ קראתי ואני מאשר/ת את תנאי הפרטיות והשימוש":"קראתי את הצהרת הפרטיות ותנאי השימוש ואני מסכים/ה להם"}
+        </span>
+      </label>
+      {!data.privacy_accepted&&<div style={{fontSize:11.5,color:C.textMuted,marginTop:7,textAlign:"center"}}>יש לסמן את התיבה למעלה כדי להמשיך</div>}
+    </div>
+
+    <Accordion title="מהי צוואה ומדוע חשוב לכתוב אחת?" icon="📜" defaultOpen>
+      <p style={{marginBottom:10,lineHeight:1.7}}>
+        צוואה היא מסמך משפטי שבו אדם מביע את רצונו לגבי חלוקת רכושו, נכסיו וזכויותיו לאחר פטירתו.
+        ללא צוואה — יחולק הרכוש לפי <strong>חוק הירושה, התשכ"ה-1965</strong>, שאינו בהכרח משקף את רצונכם.
+      </p>
+      <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+        {[["✅","הגנה על רצונכם","נכסים יגיעו בדיוק למי שרציתם"],
+          ["✅","הפחתת סכסוכים","מניעת מחלוקות משפטיות בין יורשים"],
+          ["✅","ביטחון למשפחה","במיוחד כשיש ילדים קטינים או נסיבות מיוחדות"],
+          ["✅","טיפול בנכסים מורכבים","עסק, נדל\"ן, נכסים דיגיטליים, ביטוחים"],
+        ].map(([e,t,s],i)=>(
+          <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+            <span style={{fontSize:14,flexShrink:0}}>{e}</span>
+            <span style={{fontSize:13,lineHeight:1.6}}><strong>{t}</strong> — {s}</span>
+          </div>
+        ))}
+      </div>
+      <p style={{fontSize:12.5,color:C.textMuted,lineHeight:1.6}}>כל אדם מגיל 18 ומעלה, בדעה צלולה ומרצון חופשי, רשאי לכתוב צוואה.</p>
+    </Accordion>
+
+    <Accordion title="עיקרי חוק הירושה — מה קורה ללא צוואה?" icon="⚖️">
+      <div style={{background:"#fff8e6",border:`1px solid ${C.gold}`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,lineHeight:1.65}}>
+        <strong>חשוב:</strong> החוק קובע מי יירש את רכושכם אם לא תשאירו צוואה — וזה לא תמיד מה שהייתם רוצים.
+      </div>
+
+      <div style={{fontWeight:700,color:C.navy,fontSize:13,marginBottom:8,borderBottom:`1px solid ${C.border}`,paddingBottom:6}}>👨‍👩‍👧 מצב משפחתי ← מי יורש</div>
+
+      <LawRow bullet="1.">
+        <strong>בן/בת זוג + ילדים:</strong> בן הזוג מקבל את כל <em>המיטלטלין</em> (רכב, ריהוט, חפצים אישיים) + <strong>מחצית מיתרת העיזבון</strong>. המחצית השנייה מתחלקת בחלקים שווים בין ילדי המנוח.
+      </LawRow>
+
+      <LawRow bullet="2.">
+        <strong>בן/בת זוג ללא ילדים:</strong> בן הזוג מקבל <strong>שני שלישים</strong> מהעיזבון. השליש הנותר עובר להורי המנוח — ואם אינם בחיים, לאחיו ואחיותיו.
+      </LawRow>
+
+      <LawRow bullet="3.">
+        <strong>ילדים ללא בן/בת זוג:</strong> הרכוש מתחלק בחלקים שווים בין כל הילדים. אם ילד נפטר לפני ההורה — <strong>חלקו עובר לילדיו</strong> (נכדי המנוח).
+      </LawRow>
+
+      <LawRow bullet="4.">
+        <strong>יורשים רחוקים:</strong> אם אין בן/בת זוג, ילדים או הורים — הירושה עוברת לקרובים הבאים בסדר קדימות: הורים ← אחים/אחיות ← סבים וסבתות ← דודים.
+      </LawRow>
+
+      <LawRow bullet="5.">
+        <strong>היעדר יורשים כלל:</strong> אם לא נמצאו יורשים מכל סוג — הרכוש מועבר <strong>לבעלות המדינה</strong>.
+      </LawRow>
+
+      <LawRow bullet="6.">
+        <strong>ילדים מאומצים:</strong> זכאים לרשת את הוריהם המאמצים <strong>בדיוק כמו ילדים ביולוגיים</strong>, לכל דבר ועניין.
+      </LawRow>
+
+      <LawRow bullet="7.">
+        <strong>ידועים בציבור:</strong> מוכרים כבני זוג לעניין ירושה, ובלבד שהיו ידועים בציבור כבני זוג בסמוך לפטירה ואין להם בן/בת זוג אחרים/ות.
+      </LawRow>
+
+      <div style={{background:"#eef3fc",borderRight:`4px solid ${C.navyLight}`,borderRadius:"0 8px 8px 0",padding:"9px 13px",marginTop:12,marginBottom:8}}>
+        <div style={{fontWeight:700,color:C.navy,fontSize:13,marginBottom:5}}>⚙️ הליך מימוש הירושה</div>
+        <p style={{fontSize:12.5,lineHeight:1.7,margin:0}}>
+          כדי לממש זכויות ירושה — בין אם יש צוואה ובין אם לאו — יש להגיש בקשה לרשם לענייני ירושה (או לבית הדין הדתי) לקבלת <strong>צו ירושה</strong> (כשאין צוואה) או <strong>צו קיום צוואה</strong> (כשיש צוואה). ללא צו זה, לא ניתן לפעול מול הבנקים, הטאבו, ורשויות אחרות.
+        </p>
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",gap:7,marginTop:10,padding:"7px 11px",background:"#f7f5f0",borderRadius:7}}>
+        <span style={{fontSize:15}}>🔗</span>
+        <span style={{fontSize:12,color:C.textMuted}}>מקור: </span>
+        <a href="https://www.kolzchut.org.il/he/ירושה_על_פי_דין" target="_blank" rel="noreferrer"
+           style={{fontSize:12,color:C.navyLight,fontWeight:600}}>כל-זכות — ירושה על פי דין</a>
+        <span style={{fontSize:12,color:C.textLight,marginRight:"auto"}}>+ 5 מקורות נוספים</span>
+      </div>
+    </Accordion>
+
+    <Accordion title="סוגי צוואות בישראל" icon="📋">
+      <p style={{marginBottom:8,fontSize:13,lineHeight:1.7}}>החוק מכיר בארבעה סוגים תקפים של צוואה:</p>
+      <LawRow bullet="🖊️"><strong>צוואה בכתב יד</strong> — כתובה ידנית <em>כולה</em> בכתב יד המצווה, חתומה וכוללת תאריך. ללא עדים. פשוטה, אך חשופה יותר לערעורים.</LawRow>
+      <LawRow bullet="👥"><strong>צוואה בעדים</strong> — נחתמת בנוכחות שני עדים כשרים. הנפוצה ביותר. בה משתמש כלי זה.</LawRow>
+      <LawRow bullet="🏛️"><strong>צוואה בפני רשות</strong> — מוכתבת או נחתמת בפני רשם ירושות, שופט, או חבר בית דין דתי. חוזקה המשפטי גבוה.</LawRow>
+      <LawRow bullet="📝"><strong>צוואה בפני נוטריון</strong> — נחתמת בפני נוטריון, ללא צורך בעדים נוספים. מעניקה הגנה מירבית ומעידה על כשרות הנפש.</LawRow>
+    </Accordion>
+
+    <Accordion title="צוואה אישית לעומת הדדית" icon="👥">
+      <LawRow bullet="👤"><strong>צוואה אישית</strong> — נכתבת על ידי אדם אחד בלבד. חופשית לשינוי בכל עת. מתאימה לכל אדם.</LawRow>
+      <LawRow bullet="👫"><strong>צוואה הדדית</strong> — נכתבת יחד על ידי שני בני זוג. כל אחד מהם צווה לטובת השני ו/או לטובת יורשים משותפים. <strong>לאחר פטירת אחד מהם — לא ניתן לבטלה באופן חד-צדדי</strong>, אלא אם כן הוסדר כך מראש. מוסדרת בסעיף 8א לחוק הירושה.</LawRow>
+    </Accordion>
+
+    <InfoNote type="warning"><strong>הבהרה משפטית:</strong> כלי זה מסייע בהכנת טיוטה בלבד ואינו מהווה ייעוץ משפטי. לתוקף מחייב יש לחתום כנדרש ולשקול הפקדה ברשם הירושה.</InfoNote>
+  </div>;
+}
+
+function StepWillType({ data, setData }) {
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>סוג הצוואה</h2>
+    <div style={{marginTop:10}}><AudioBtn label="סוג הצוואה" audioKey="will_type"/></div>
+    <div style={{marginTop:14}}>
+      <ChoiceCard selected={data.will.type==="personal"} onClick={()=>setData(d=>({...d,will:{...d.will,type:"personal"}}))} icon="👤" title="צוואה אישית" subtitle="לאדם אחד. מתאימה לרווקים, גרושים, או כל אדם."/>
+      <ChoiceCard selected={data.will.type==="mutual"} onClick={()=>setData(d=>({...d,will:{...d.will,type:"mutual"},parties:{...d.parties,testators:d.parties.testators.length<2?[...d.parties.testators,mkPerson()]:d.parties.testators}}))} icon="👫" title="צוואה הדדית" subtitle="לבני זוג. שתי הצוואות כרוכות ומגינות על שניהם."/>
+    </div>
+    {data.will.type==="mutual"&&<InfoNote type="info">בצוואה הדדית שני בני הזוג הם מצווים. לאחר פטירת אחד — הצוואה של השני מוגנת.</InfoNote>}
+  </div>;
+}
+
+function StepSignatureMode({ data, setData }) {
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>מסלול חתימה</h2>
+    <div style={{marginTop:10}}><AudioBtn label="מסלול חתימה" audioKey="signature_mode"/></div>
+    <div style={{marginTop:14}}>
+      <ChoiceCard selected={data.will.signature_mode==="witnesses"} onClick={()=>setData(d=>({...d,will:{...d.will,signature_mode:"witnesses"}}))} icon="👥" title="חתימה בפני עדים" subtitle="2 עדים שאינם מוטבים. מסלול עצמאי ופשוט."/>
+      <ChoiceCard selected={data.will.signature_mode==="authority_notary"} onClick={()=>setData(d=>({...d,will:{...d.will,signature_mode:"authority_notary"}}))} icon="🏛️" title="נוטריון / רשות" subtitle="ללא עדים נוספים. הגנה משפטית מירבית."/>
+      <ChoiceCard selected={data.will.signature_mode==="lawyer_draft"} onClick={()=>setData(d=>({...d,will:{...d.will,signature_mode:"lawyer_draft"}}))} icon="📋" title='טיוטה לעו"ד' subtitle='הכינו נתונים, שלחו לעו"ד לבדיקה וחתימה.'/>
+    </div>
+    <Accordion title="השוואה בין המסלולים" icon="⚖️">
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr style={{background:C.navy,color:"white"}}><th style={{padding:"7px 10px",textAlign:"right"}}>מסלול</th><th style={{padding:"7px 10px"}}>עדים</th><th style={{padding:"7px 10px"}}>עו"ד/נוטריון</th><th style={{padding:"7px 10px"}}>חוזק</th></tr></thead>
+        <tbody>{[["עדים","✅ 2 עדים","❌","⭐⭐⭐"],["נוטריון","❌","✅","⭐⭐⭐⭐⭐"],['עו"ד',"✅ 2 עדים","✅","⭐⭐⭐⭐"]].map(([m,e,a,s],i)=><tr key={i} style={{background:i%2?"#f7f5f0":"white"}}><td style={{padding:"7px 10px",fontWeight:600}}>{m}</td><td style={{padding:"7px 10px",textAlign:"center"}}>{e}</td><td style={{padding:"7px 10px",textAlign:"center"}}>{a}</td><td style={{padding:"7px 10px",textAlign:"center"}}>{s}</td></tr>)}</tbody>
+      </table>
+    </Accordion>
+  </div>;
+}
+
+function StepTestators({ data, setData }) {
+  const isMutual = data.will.type==="mutual";
+  const upd = (i,v) => setData(d=>{const t=[...d.parties.testators];t[i]=v;return{...d,parties:{...d.parties,testators:t}};});
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>{isMutual?"פרטי המצווים":"פרטי המצווה"}</h2>
+    <div style={{marginTop:10}}><AudioBtn label="פרטי המצווה" audioKey="testators"/></div>
+    <div style={{marginTop:14}}>{data.parties.testators.map((t,i)=><PersonForm key={i} person={t} onChange={v=>upd(i,v)} label={isMutual?(i===0?"בן/בת זוג א'":"בן/בת זוג ב'"):"המצווה"} index={isMutual?i:null}/>)}</div>
+    <InfoNote type="info">הפרטים יופיעו בצוואה — יש לוודא שתואמים לת.ז.</InfoNote>
+  </div>;
+}
+
+function StepBeneficiaries({ data, setData }) {
+  const bens = data.parties.beneficiaries;
+  const add = () => setData(d=>({...d,parties:{...d.parties,beneficiaries:[...d.parties.beneficiaries,mkBen(d.parties.beneficiaries.length+1)]}}));
+  const upd = (i,v) => setData(d=>{const b=[...d.parties.beneficiaries];b[i]=v;return{...d,parties:{...d.parties,beneficiaries:b}};});
+  const rem = (i) => setData(d=>({...d,parties:{...d.parties,beneficiaries:d.parties.beneficiaries.filter((_,j)=>j!==i)}}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>מוטבים (יורשים)</h2>
+    <div style={{marginTop:10}}><AudioBtn label="מוטבים" audioKey="beneficiaries"/></div>
+    <div style={{marginTop:14}}>
+      {bens.length===0&&<div style={{textAlign:"center",padding:20,color:C.textMuted,background:"#f7f5f0",borderRadius:9,marginBottom:12}}>טרם הוספת מוטבים</div>}
+      {bens.map((b,i)=><BenForm key={b.beneficiary_id} ben={b} onChange={v=>upd(i,v)} index={i} onRemove={()=>rem(i)}/>)}
+      <button onClick={add} style={{width:"100%",padding:"11px",borderRadius:9,border:`2px dashed ${C.navyLight}`,background:"transparent",color:C.navyLight,fontSize:13,fontWeight:600,cursor:"pointer"}}>+ הוסף מוטב/ת</button>
+    </div>
+    {bens.some(b=>b.is_minor)&&<InfoNote type="warning"><strong>ילדים קטינים:</strong> ניתן להגדיר נאמנות בהמשך.</InfoNote>}
+  </div>;
+}
+
+function StepAssets({ data, setData }) {
+  const add = () => setData(d=>({...d,assets:[...d.assets,mkAsset(d.assets.length+1)]}));
+  const upd = (i,v) => setData(d=>{const a=[...d.assets];a[i]=v;return{...d,assets:a};});
+  const rem = (i) => setData(d=>({...d,assets:d.assets.filter((_,j)=>j!==i)}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>נכסים</h2>
+    <div style={{marginTop:10}}><AudioBtn label="נכסים" audioKey="assets"/></div>
+    <Accordion title="למה לפרט נכסים?" icon="💡">ציון נכסים מקל על מנהל העיזבון ומונע מחלוקות. ניתן להוסיף נדל"ן, בנקים, רכבים, ביטוחים, נכסים דיגיטליים ועוד.</Accordion>
+    <div style={{marginTop:10}}>
+      {data.assets.length===0&&<div style={{textAlign:"center",padding:20,color:C.textMuted,background:"#f7f5f0",borderRadius:9,marginBottom:12}}>אופציונלי — ניתן לדלג</div>}
+      {data.assets.map((a,i)=><AssetForm key={a.asset_id} asset={a} onChange={v=>upd(i,v)} index={i} onRemove={()=>rem(i)}/>)}
+      <button onClick={add} style={{width:"100%",padding:"11px",borderRadius:9,border:`2px dashed ${C.navyLight}`,background:"transparent",color:C.navyLight,fontSize:13,fontWeight:600,cursor:"pointer"}}>+ הוסף נכס</button>
+    </div>
+  </div>;
+}
+
+function StepDebts({ data, setData }) {
+  const add = () => setData(d=>({...d,debts:[...(d.debts||[]),mkDebt((d.debts||[]).length+1)]}));
+  const upd = (i,v) => setData(d=>{const arr=[...(d.debts||[])];arr[i]=v;return{...d,debts:arr};});
+  const rem = (i) => setData(d=>({...d,debts:(d.debts||[]).filter((_,j)=>j!==i)}));
+  const debts = data.debts||[];
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>חובות שאני חייב</h2>
+    <div style={{marginTop:10}}><AudioBtn label="חובות" audioKey="debts"/></div>
+    <InfoNote type="info">חובות ישולמו על ידי מנהל העיזבון לפני חלוקת הנכסים. רישומם מקל על היורשים ומונע הפתעות.</InfoNote>
+    <Accordion title="אילו חובות כדאי לרשום?" icon="💡">
+      <p style={{marginBottom:5}}>• משכנתא על דירה</p>
+      <p style={{marginBottom:5}}>• הלוואות בנקאיות / חוץ בנקאיות</p>
+      <p style={{marginBottom:5}}>• חובות לאנשים פרטיים</p>
+      <p>• ערבויות, חכירות, שכירויות</p>
+    </Accordion>
+    <div style={{marginTop:10}}>
+      {debts.length===0&&<div style={{textAlign:"center",padding:20,color:C.textMuted,background:"#fff5f5",borderRadius:9,marginBottom:12}}>אופציונלי — ניתן לדלג</div>}
+      {debts.map((d,i)=><DebtForm key={d.debt_id} debt={d} onChange={v=>upd(i,v)} index={i} onRemove={()=>rem(i)}/>)}
+      <button onClick={add} style={{width:"100%",padding:"11px",borderRadius:9,border:`2px dashed ${C.error}`,background:"transparent",color:C.error,fontSize:13,fontWeight:600,cursor:"pointer"}}>+ הוסף חוב</button>
+    </div>
+  </div>;
+}
+
+function StepCredits({ data, setData }) {
+  const credits = data.credits||[];
+  const add = () => setData(d=>({...d,credits:[...(d.credits||[]),mkCredit((d.credits||[]).length+1)]}));
+  const upd = (i,v) => setData(d=>{const a=[...(d.credits||[])];a[i]=v;return{...d,credits:a};});
+  const rem = (i) => setData(d=>({...d,credits:(d.credits||[]).filter((_,j)=>j!==i)}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>חובות שחייבים לי</h2>
+    <div style={{marginTop:8}}><AudioBtn label="חובות שחייבים לי" audioKey="assets"/></div>
+    <InfoNote type="info">חובות שאחרים חייבים לכם הם חלק מהעיזבון — מנהל העיזבון יגבה אותם לטובת היורשים.</InfoNote>
+    <Accordion title="אילו חובות כדאי לרשום?" icon="💡">
+      <p style={{marginBottom:5,fontSize:13}}>• הלוואות שנתתם לאנשים פרטיים</p>
+      <p style={{marginBottom:5,fontSize:13}}>• שטרי חוב</p>
+      <p style={{marginBottom:5,fontSize:13}}>• הסכמי הלוואה עסקיים</p>
+      <p style={{fontSize:13}}>• כל חוב מתועד או מוסכם</p>
+    </Accordion>
+    <div style={{marginTop:10}}>
+      {credits.length===0&&<div style={{textAlign:"center",padding:20,color:C.textMuted,background:"#f0faf4",borderRadius:9,marginBottom:12,fontSize:13}}>אופציונלי — ניתן לדלג</div>}
+      {credits.map((c,i)=><CreditForm key={c.credit_id} credit={c} onChange={v=>upd(i,v)} index={i} onRemove={()=>rem(i)}/>)}
+      <button onClick={add} style={{width:"100%",padding:"11px",borderRadius:9,border:`2px dashed ${C.success}`,background:"transparent",color:C.success,fontSize:13,fontWeight:600,cursor:"pointer"}}>+ הוסף חוב שחייבים לי</button>
+    </div>
+  </div>;
+}
+
+function assetOptionLabel(a) {
+  const base = a.label || ASSET_TYPE_LABELS[a.asset_type] || "נכס";
+  if (a.asset_type==="real_estate") return base + (a.re_address ? " — " + a.re_address : "");
+  if (a.asset_type==="bank_account") return base + (a.bank_name ? " — " + a.bank_name : "") + (a.account_number ? " מס\' " + a.account_number : "");
+  if (a.asset_type==="vehicle") return base + (a.vehicle_make ? " " + a.vehicle_make : "") + (a.vehicle_model ? " " + a.vehicle_model : "") + (a.license_plate ? " (" + a.license_plate + ")" : "");
+  if (a.asset_type==="insurance") return base + (a.insurer ? " — " + a.insurer : "") + (a.policy_number ? " מס\' " + a.policy_number : "");
+  if (a.asset_type==="valuables") return base + (a.valuables_description ? " — " + a.valuables_description : "");
+  return base;
+}
+
+function StepGifts({ data, setData }) {
+  const gifts=data.distributions.specific_gifts, bens=data.parties.beneficiaries, assets=data.assets;
+  const add = () => setData(d=>({...d,distributions:{...d.distributions,specific_gifts:[...d.distributions.specific_gifts,mkGift(d.distributions.specific_gifts.length+1)]}}));
+  const upd = (i,v) => setData(d=>{const g=[...d.distributions.specific_gifts];g[i]=v;return{...d,distributions:{...d.distributions,specific_gifts:g}};});
+  const rem = (i) => setData(d=>({...d,distributions:{...d.distributions,specific_gifts:d.distributions.specific_gifts.filter((_,j)=>j!==i)}}));
+
+  // Assets already designated in previous gifts
+  const usedAssetIds = (idx) => gifts.slice(0, idx).map(g=>g.asset_id).filter(Boolean);
+
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:3}}>ייעוד נכסים ספציפיים</h2>
+    <p style={{fontSize:12,color:C.textMuted,marginBottom:8}}>(Specific Bequests)</p>
+    <div style={{marginTop:6}}><AudioBtn label="ייעוד נכסים" audioKey="specific_gifts"/></div>
+    <Accordion title="מה ההבדל בין ייעוד ספציפי לחלוקת העיזבון?" icon="💡" defaultOpen>
+      <p style={{marginBottom:8,lineHeight:1.75,fontSize:13}}>
+        <strong>ייעוד ספציפי</strong> — כאן תקבעו מה מגיע <em>למי בדיוק</em>: נכס מסוים, סכום קבוע, חשבון בנק, או חפצים.
+        לדוגמה: "הדירה בתל אביב — לבתי רחל", "הרכב — לבני דוד".
+      </p>
+      <p style={{marginBottom:8,lineHeight:1.75,fontSize:13}}>
+        <strong>חלוקת יתרת העיזבון</strong> (השלב הבא) — מה שנשאר <em>לאחר</em> כל הייעודים הספציפיים, יחולק לפי אחוזים או בחלקים שווים.
+      </p>
+      <div style={{background:"#fff8e6",border:`1px solid ${C.gold}`,borderRadius:7,padding:"8px 11px",fontSize:12.5,lineHeight:1.7}}>
+        ⚠️ נכסים שיועדו בייעוד קודם לא יופיעו ברשימה של ייעוד הבא.
+      </div>
+    </Accordion>
+    <div style={{marginTop:10}}>
+      {gifts.length===0&&<div style={{textAlign:"center",padding:20,color:C.textMuted,background:"#f7f5f0",borderRadius:9,marginBottom:12,fontSize:13}}>אופציונלי — ניתן לדלג אם רוצים לחלק הכל באחוזים/שווה</div>}
+      {gifts.map((g,i)=>{
+        const up=(k,v)=>upd(i,{...g,[k]:v});
+        const usedIds = usedAssetIds(i);
+        const availableAssets = assets.filter(a=>!usedIds.includes(a.asset_id));
+        const bankAssets = assets.filter(a=>a.asset_type==="bank_account");
+        // multi-beneficiary total
+        const multiTotal = (g.to_beneficiaries||[]).reduce((s,x)=>s+(Number(x.percent)||0),0);
+        const addMultiBen = (bid) => {
+          if(!(g.to_beneficiaries||[]).find(x=>x.beneficiary_id===bid))
+            up("to_beneficiaries",[...(g.to_beneficiaries||[]),{beneficiary_id:bid,percent:0}]);
+        };
+        const removeMultiBen = (bid) => up("to_beneficiaries",(g.to_beneficiaries||[]).filter(x=>x.beneficiary_id!==bid));
+        const setMultiPct = (bid,pct) => up("to_beneficiaries",(g.to_beneficiaries||[]).map(x=>x.beneficiary_id===bid?{...x,percent:Number(pct)}:x));
+
+        return <div key={g.gift_id} style={{background:"#f7f5f0",borderRadius:9,padding:14,marginBottom:12,border:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+            <span style={{fontWeight:700,color:C.navy,fontSize:13}}>ייעוד {i+1}</span>
+            <button onClick={()=>rem(i)} style={{background:"none",border:"none",color:C.error,cursor:"pointer"}}>✕</button>
+          </div>
+
+          {/* Gift type */}
+          <div style={{marginBottom:10}}>
+            <Label>סוג</Label>
+            <select value={g.gift_type} onChange={e=>up("gift_type",e.target.value)}>
+              <option value="asset">נכס ספציפי מהרשימה</option>
+              <option value="bank_account">חשבון בנק</option>
+              <option value="amount">סכום כסף</option>
+              <option value="item_list">חפצים / פריטים</option>
+            </select>
+          </div>
+
+          {/* Asset selection — available only (not yet used) */}
+          {g.gift_type==="asset"&&<div style={{marginBottom:10}}>
+            <Label>בחר נכס</Label>
+            <select value={g.asset_id} onChange={e=>up("asset_id",e.target.value)}>
+              <option value="">-- בחר נכס מהרשימה --</option>
+              {availableAssets.map(a=><option key={a.asset_id} value={a.asset_id}>{assetOptionLabel(a)}</option>)}
+            </select>
+            {usedIds.length>0&&<div style={{fontSize:11,color:C.textMuted,marginTop:3}}>נכסים שכבר יועדו אינם מוצגים</div>}
+          </div>}
+
+          {/* Bank account gift */}
+          {g.gift_type==="bank_account"&&<div style={{marginBottom:10}}>
+            <Label>בחר חשבון בנק</Label>
+            {bankAssets.length>0
+              ?<select value={g.bank_account_id||""} onChange={e=>up("bank_account_id",e.target.value)}>
+                <option value="">-- בחר חשבון --</option>
+                {bankAssets.map(a=><option key={a.asset_id} value={a.asset_id}>{assetOptionLabel(a)}</option>)}
+              </select>
+              :<div style={{fontSize:12,color:C.textMuted,marginTop:4}}>לא הוזנו חשבונות בנק בשלב הנכסים. <strong>הוסף חשבון בנק בשלב הנכסים תחילה.</strong></div>}
+          </div>}
+
+          {/* Amount */}
+          {g.gift_type==="amount"&&<FieldRow>
+            <div><Label>סכום</Label><input type="number" value={g.amount} onChange={e=>up("amount",e.target.value)} placeholder="0"/></div>
+            <div><Label>מטבע</Label><select value={g.currency} onChange={e=>up("currency",e.target.value)}><option value="ILS">₪ שקל</option><option value="USD">$ דולר</option><option value="EUR">€ יורו</option></select></div>
+          </FieldRow>}
+
+          {/* Items */}
+          {g.gift_type==="item_list"&&<div style={{marginBottom:10}}>
+            <Label>פרט את החפצים (הפרד בפסיק)</Label>
+            <input value={g.items.join(", ")} onChange={e=>up("items",e.target.value.split(",").map(s=>s.trim()).filter(Boolean))} placeholder="שעון זהב, ספרייה, ציור שמן..."/>
+          </div>}
+
+          {/* Beneficiary — single or multi */}
+          <div style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <Label required>מוטב/ת</Label>
+              <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.navyLight,cursor:"pointer"}}>
+                <input type="checkbox" checked={g.multi_ben||false} onChange={e=>up("multi_ben",e.target.checked)} style={{width:"auto"}}/> מספר מוטבים
+              </label>
+            </div>
+            {!g.multi_ben
+              ?<select value={g.to_beneficiary_id} onChange={e=>up("to_beneficiary_id",e.target.value)}>
+                <option value="">-- בחר מוטב --</option>
+                {bens.map(b=><option key={b.beneficiary_id} value={b.beneficiary_id}>{b.full_name||"מוטב"}</option>)}
+              </select>
+              :<div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                  {bens.filter(b=>!(g.to_beneficiaries||[]).find(x=>x.beneficiary_id===b.beneficiary_id)).map(b=>
+                    <button key={b.beneficiary_id} onClick={()=>addMultiBen(b.beneficiary_id)}
+                      style={{padding:"4px 10px",borderRadius:14,border:`1.5px dashed ${C.navyLight}`,background:"white",color:C.navyLight,fontSize:12,cursor:"pointer"}}>
+                      + {b.full_name||"מוטב"}
+                    </button>
+                  )}
+                </div>
+                {(g.to_beneficiaries||[]).map(x=>{
+                  const b=bens.find(b=>b.beneficiary_id===x.beneficiary_id);
+                  if(!b) return null;
+                  return <div key={x.beneficiary_id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,background:"white",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`}}>
+                    <span style={{flex:1,fontSize:13,fontWeight:500}}>{b.full_name}</span>
+                    <input type="number" min={0} max={100} value={x.percent} onChange={e=>setMultiPct(x.beneficiary_id,e.target.value)} style={{width:60}}/>
+                    <span style={{fontSize:12,color:C.textMuted}}>%</span>
+                    <button onClick={()=>removeMultiBen(x.beneficiary_id)} style={{background:"none",border:"none",color:C.error,cursor:"pointer",fontSize:13}}>✕</button>
+                  </div>;
+                })}
+                {(g.to_beneficiaries||[]).length>1&&<div style={{fontSize:12,fontWeight:700,color:multiTotal===100?C.success:C.error}}>סה"כ: {multiTotal}% {multiTotal!==100?"— חייב להסתכם ב-100%":"✓"}</div>}
+              </div>
+            }
+          </div>
+
+          {/* Fallback */}
+          <div style={{marginBottom:4}}>
+            <Label>אם המוטב נפטר לפניי</Label>
+            <select value={g.fallback_type||"person"} onChange={e=>up("fallback_type",e.target.value)} style={{marginBottom:6}}>
+              <option value="none">יעבור ליתרת העיזבון</option>
+              <option value="person">מוטב חלופי ספציפי</option>
+              <option value="descendants">לצאצאי המוטב</option>
+              <option value="other">אחר (פירוט חופשי)</option>
+            </select>
+            {(g.fallback_type==="person"||!g.fallback_type)&&g.fallback_type!=="none"&&g.fallback_type!=="descendants"&&g.fallback_type!=="other"&&
+              <select value={g.fallback_beneficiary_id} onChange={e=>up("fallback_beneficiary_id",e.target.value)}>
+                <option value="">-- בחר מוטב חלופי --</option>
+                {bens.filter(b=>b.beneficiary_id!==(g.to_beneficiary_id)||g.multi_ben).map(b=><option key={b.beneficiary_id} value={b.beneficiary_id}>{b.full_name}</option>)}
+              </select>}
+            {g.fallback_type==="other"&&
+              <textarea value={g.fallback_free_text||""} onChange={e=>up("fallback_free_text",e.target.value)} placeholder="לדוגמה: יחולק בין צאצאיו ו/או לפי שיקול דעת מנהל העיזבון..." style={{minHeight:50,marginTop:4}}/>}
+          </div>
+        </div>;
+      })}
+      <button onClick={add} style={{width:"100%",padding:"11px",borderRadius:9,border:`2px dashed ${C.navyLight}`,background:"transparent",color:C.navyLight,fontSize:13,fontWeight:600,cursor:"pointer"}}>+ הוסף ייעוד ספציפי</button>
+    </div>
+  </div>;
+}
+
+function StepResidual({ data, setData }) {
+  const bens=data.parties.beneficiaries, r=data.distributions.residual;
+  const setMode = m => { const p=m==="percentages"?bens.map(b=>({beneficiary_id:b.beneficiary_id,percent:Math.round(100/bens.length)})):[];setData(d=>({...d,distributions:{...d.distributions,residual:{mode:m,percentages:p}}})); };
+  const setPct = (bid,p) => setData(d=>({...d,distributions:{...d.distributions,residual:{...d.distributions.residual,percentages:d.distributions.residual.percentages.map(x=>x.beneficiary_id===bid?{...x,percent:Number(p)}:x)}}}));
+  const total = r.percentages.reduce((s,p)=>s+(Number(p.percent)||0),0);
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:3}}>חלוקת יתרת העיזבון</h2>
+    <p style={{fontSize:12,color:C.textMuted,marginBottom:8}}>מה שנשאר לאחר כל הייעודים הספציפיים, החובות, וההוצאות</p>
+    <div style={{marginTop:6}}><AudioBtn label="חלוקת העיזבון" audioKey="residual"/></div>
+    <div style={{background:"#eef3fc",borderRight:`4px solid ${C.navyLight}`,borderRadius:"0 8px 8px 0",padding:"9px 13px",margin:"10px 0",fontSize:13,lineHeight:1.7}}>
+      ℹ️ אחוזים אלו מתייחסים לשווי הכספי של <strong>יתרת</strong> העיזבון בלבד. נכסים ספציפיים (דירה, רכב...) יש לייעד בשלב הקודם.
+    </div>
+    <div style={{marginTop:10}}>
+      <ChoiceCard selected={r.mode==="equal"} onClick={()=>setMode("equal")} icon="⚖️" title="חלקים שווים" subtitle="כל המוטבים יקבלו חלק שווה מיתרת העיזבון"/>
+      <ChoiceCard selected={r.mode==="percentages"} onClick={()=>setMode("percentages")} icon="📊" title="אחוזים ספציפיים" subtitle="קבעו אחוז שונה לכל מוטב — חייב להסתכם ב-100%"/>
+    </div>
+    {r.mode==="percentages"&&<div style={{background:"#f7f5f0",borderRadius:9,padding:14,marginTop:10}}>
+      {bens.length===0?<p style={{color:C.textMuted,fontSize:13}}>הוסף מוטבים תחילה</p>:bens.map(b=><div key={b.beneficiary_id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}><span style={{flex:1,fontSize:13,fontWeight:500}}>{b.full_name||`מוטב`}</span><div style={{width:80}}><input type="number" min={0} max={100} value={r.percentages.find(p=>p.beneficiary_id===b.beneficiary_id)?.percent||0} onChange={e=>setPct(b.beneficiary_id,e.target.value)}/></div><span style={{color:C.textMuted,fontSize:13}}>%</span></div>)}
+      {bens.length>0&&<div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,fontWeight:700,fontSize:13,color:total===100?C.success:C.error}}>סה"כ: {total}% {total!==100?"⚠️":"✓"}</div>}
+    </div>}
+  </div>;
+}
+
+function StepPredeceased({ data, setData }) {
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>מה אם מוטב נפטר לפניך?</h2>
+    <div style={{marginTop:10}}><AudioBtn label="מוטב שנפטר" audioKey="predeceased"/></div>
+    <div style={{marginTop:14}}>
+      {[{k:"descendants",i:"👶",t:"לצאצאיו",s:"חלקו יעבור לילדיו/נכדיו."},
+        {k:"survivors_only",i:"👥",t:"ליתר המוטבים",s:"חלקו יחולק בין המוטבים החיים."},
+        {k:"per_beneficiary_substitute",i:"🔄",t:"מחליף ספציפי",s:"לכל מוטב יוגדר מחליף."}
+      ].map(({k,i,t,s})=><ChoiceCard key={k} selected={data.distributions.predeceased_rule.mode===k} onClick={()=>setData(d=>({...d,distributions:{...d.distributions,predeceased_rule:{mode:k}}}))} icon={i} title={t} subtitle={s}/>)}
+    </div>
+  </div>;
+}
+
+function StepExecutor({ data, setData }) {
+  const ex=data.parties.executor, alt=data.parties.alt_executor;
+  const setEx=v=>setData(d=>({...d,parties:{...d.parties,executor:v}}));
+  const setAlt=v=>setData(d=>({...d,parties:{...d.parties,alt_executor:v}}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>מינוי מנהל/ת עיזבון</h2>
+    <div style={{marginTop:10}}><AudioBtn label="מנהל עיזבון" audioKey="executor"/></div>
+    <Accordion title="מהו מנהל עיזבון?" icon="ℹ️">מנהל העיזבון יאתר נכסים, ישלם חובות ויחלק הרכוש.</Accordion>
+    <div style={{marginTop:14}}>
+      <button onClick={()=>ex?setEx(null):setEx(mkPerson())} style={{width:"100%",padding:"10px",borderRadius:8,border:`1.5px solid ${ex?C.error:C.navyLight}`,background:ex?C.errorBg:"#eef3fc",color:ex?C.error:C.navyLight,fontWeight:600,fontSize:13,marginBottom:12}}>
+        {ex?"✕ הסר מנהל עיזבון":"+ הוסף מנהל/ת עיזבון"}
+      </button>
+      {ex&&<><PersonForm person={ex} onChange={setEx} label="מנהל/ת עיזבון"/>
+        {!alt&&<button onClick={()=>setAlt(mkPerson())} style={{width:"100%",padding:"9px",borderRadius:8,border:`1.5px dashed ${C.navyLight}`,background:"transparent",color:C.navyLight,fontWeight:600,fontSize:13,marginBottom:10}}>+ הוסף מחליף/ת</button>}
+        {alt&&<><p style={{fontWeight:700,color:C.navy,marginBottom:8,fontSize:13}}>מנהל/ת חלופי/ת</p><PersonForm person={alt} onChange={setAlt} label="מנהל/ת חלופי"/><button onClick={()=>setAlt(null)} style={{background:"none",border:"none",color:C.error,cursor:"pointer",fontSize:12}}>הסר</button></>}
+      </>}
+    </div>
+  </div>;
+}
+
+function StepMinorTrust({ data, setData }) {
+  const mt=data.distributions.minor_trust, trustee=data.parties.trustee;
+  const up=(k,v)=>setData(d=>({...d,distributions:{...d.distributions,minor_trust:{...d.distributions.minor_trust,[k]:v}}}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>קטינים — נאמנות</h2>
+    <div style={{marginTop:10}}><AudioBtn label="נאמנות" audioKey="minor_trust"/></div>
+    {data.parties.beneficiaries.some(b=>b.is_minor)&&<InfoNote type="warning">זיהינו מוטב קטין. מומלץ להגדיר נאמנות.</InfoNote>}
+    <div style={{marginTop:14}}>
+      <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"12px 14px",background:mt.enabled?"#eef3fc":"#f7f5f0",borderRadius:9,border:`2px solid ${mt.enabled?C.navyLight:C.border}`,marginBottom:14}}>
+        <input type="checkbox" checked={mt.enabled} onChange={e=>up("enabled",e.target.checked)} style={{width:"auto",transform:"scale(1.3)"}}/>
+        <div><div style={{fontWeight:700,color:C.navy,fontSize:13}}>הפעל נאמנות</div><div style={{fontSize:12,color:C.textMuted}}>מינוי נאמן לניהול נכסי קטינים</div></div>
+      </label>
+      {mt.enabled&&<><FieldRow><div><Label>גיל ניהול עד</Label><input type="number" min={18} max={40} value={mt.trust_age_until} onChange={e=>up("trust_age_until",Number(e.target.value))}/></div><div><Label>גיל קבלת נכסים</Label><input type="number" min={18} max={40} value={mt.release_age} onChange={e=>up("release_age",Number(e.target.value))}/></div></FieldRow>
+        {!trustee?<button onClick={()=>setData(d=>({...d,parties:{...d.parties,trustee:mkPerson()}}))} style={{width:"100%",padding:"11px",borderRadius:9,border:`2px dashed ${C.navyLight}`,background:"transparent",color:C.navyLight,fontWeight:600,cursor:"pointer",fontSize:13}}>+ הוסף נאמן/ת</button>
+          :<PersonForm person={trustee} onChange={v=>setData(d=>({...d,parties:{...d.parties,trustee:v}}))} label="נאמן/ת"/>}
+      </>}
+    </div>
+  </div>;
+}
+
+function StepMutual({ data, setData }) {
+  const mo=data.distributions.mutual_options;
+  const up=(k,v)=>setData(d=>({...d,distributions:{...d.distributions,mutual_options:{...d.distributions.mutual_options,[k]:v}}}));
+  const upS=(k,v)=>up("first_death_split",{...mo.first_death_split,[k]:v});
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>אפשרויות הדדית</h2>
+    <div style={{marginTop:10}}><AudioBtn label="צוואה הדדית" audioKey="mutual_options"/></div>
+    <div style={{marginTop:14}}>
+      <h3 style={{fontSize:14,color:C.navy,marginBottom:9}}>פטירת הראשון — מה יקרה?</h3>
+      <ChoiceCard selected={mo.first_death_mode==="all_to_survivor"} onClick={()=>up("first_death_mode","all_to_survivor")} icon="👤" title="הכל לבן/בת הזוג הנותר/ת" subtitle="מלוא העיזבון עובר לבן/בת הזוג."/>
+      <ChoiceCard selected={mo.first_death_mode==="split_now"} onClick={()=>up("first_death_mode","split_now")} icon="📊" title="חלוקה מיידית" subtitle="חלק לבן/בת הזוג, חלק לילדים."/>
+      {mo.first_death_mode==="split_now"&&<FieldRow><div><Label>% לבן/בת הזוג</Label><input type="number" min={0} max={100} value={mo.first_death_split.survivor_percent} onChange={e=>upS("survivor_percent",Number(e.target.value))}/></div><div><Label>% לילדים</Label><input type="number" min={0} max={100} value={mo.first_death_split.children_percent} onChange={e=>upS("children_percent",Number(e.target.value))}/></div></FieldRow>}
+      <div style={{height:1,background:C.border,margin:"16px 0"}}/>
+      <h3 style={{fontSize:14,color:C.navy,marginBottom:9}}>סמכויות הנותר/ת</h3>
+      <ChoiceCard selected={mo.survivor_powers==="full"} onClick={()=>up("survivor_powers","full")} icon="🔓" title="סמכות מלאה" subtitle="ללא הגבלה."/>
+      <ChoiceCard selected={mo.survivor_powers==="limited"} onClick={()=>up("survivor_powers","limited")} icon="🔒" title="סמכות מוגבלת" subtitle="מוגבל/ת בהעברות ונכסים מהותיים."/>
+      {mo.survivor_powers==="limited"&&<><div style={{marginBottom:10}}><Label>תקרת מתנות שנתיות (₪)</Label><input type="number" value={mo.gift_cap_amount} onChange={e=>up("gift_cap_amount",Number(e.target.value))}/></div><div><Label>הגדרת "נכס מהותי"</Label><textarea value={mo.material_asset_definition} onChange={e=>up("material_asset_definition",e.target.value)}/></div></>}
+    </div>
+  </div>;
+}
+
+function StepWitnesses({ data, setData }) {
+  const upd=(i,v)=>setData(d=>{const w=[...d.parties.witnesses];w[i]=v;return{...d,parties:{...d.parties,witnesses:w}};});
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>פרטי העדים</h2>
+    <InfoNote type="important"><strong>חוקית:</strong> עדים לא יכולים להיות מוטבים. שניהם נוכחים בו-זמנית.</InfoNote>
+    <div style={{marginTop:14}}>{data.parties.witnesses.map((w,i)=><PersonForm key={i} person={w} onChange={v=>upd(i,v)} label="עד" index={i} showEmail={false}/>)}</div>
+  </div>;
+}
+
+function StepAuthority({ data, setData }) {
+  const auth=data.parties.authority||{};
+  const up=(k,v)=>setData(d=>({...d,parties:{...d.parties,authority:{...d.parties.authority,[k]:v}}}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>פרטי {data.will.signature_mode==="authority_notary"?"הנוטריון":'עו"ד'}</h2>
+    <InfoNote type="info">{data.will.signature_mode==="authority_notary"?"ללא עדים נוספים.":'נדרשים גם 2 עדים.'}</InfoNote>
+    <div style={{background:"#f7f5f0",borderRadius:9,padding:14,marginTop:14}}>
+      <div style={{marginBottom:12}}><Label>תפקיד</Label><select value={auth.role_label||""} onChange={e=>up("role_label",e.target.value)}><option value="">-- בחר --</option><option value="נוטריון">נוטריון</option><option value="רשם לענייני ירושה">רשם לענייני ירושה</option><option value="עורך דין">עורך דין</option></select></div>
+      <FieldRow><div><Label>שם</Label><input value={auth.name||""} onChange={e=>up("name",e.target.value)}/></div><div><Label>רישיון</Label><input value={auth.license_no||""} onChange={e=>up("license_no",e.target.value)}/></div></FieldRow>
+    </div>
+  </div>;
+}
+
+function StepSig({ data, setData }) {
+  const up=(k,v)=>setData(d=>({...d,signature:{...d.signature,[k]:v}}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:14}}>פרטי חתימה</h2>
+    <FieldRow><div><Label required>תאריך</Label><input type="date" value={data.signature.date} onChange={e=>up("date",e.target.value)}/></div><div><Label required>עיר</Label><input value={data.signature.city} onChange={e=>up("city",e.target.value)} placeholder="תל אביב"/></div></FieldRow>
+  </div>;
+}
+
+function StepOutputChoice({ data, setData }) {
+  const mode = data.will.signature_mode;
+  const choice = data.output_choice;
+  const isLawyerOrNotary = mode === "authority_notary" || mode === "lawyer_draft";
+  const isSelfOrWitnesses = mode === "witnesses" || mode === "self_sign";
+
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>כיצד להמשיך?</h2>
+    <div style={{marginTop:10}}><AudioBtn label="הפקה" audioKey="output_choice"/></div>
+    <div style={{marginTop:14}}>
+      <ChoiceCard selected={choice==="self_sign"} onClick={()=>setData(d=>({...d,output_choice:"self_sign"}))} icon="✍️" title="הפק לחתימה עצמית" subtitle="הדפס וחתום בנוכחות עדים. כל הנתונים נשארים בדפדפן שלך בלבד."/>
+      <ChoiceCard selected={choice==="lawyer"} onClick={()=>setData(d=>({...d,output_choice:"lawyer"}))} icon="👨‍💼" title='שלח לעו"ד / נוטריון' subtitle='הדפס טיוטה מקצועית לחתימה רשמית — ראה הערת פרטיות למטה.'/>
+    </div>
+
+    {/* Privacy notice — self sign / witnesses */}
+    {(choice==="self_sign" || (!choice && isSelfOrWitnesses)) && (
+      <div style={{marginTop:12,background:"#e8f5ee",border:`1px solid #a8d8b9`,borderRadius:9,padding:"12px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:7}}>
+          <span style={{fontSize:16}}>🔒</span>
+          <span style={{fontWeight:700,color:"#1a6e3c",fontSize:13}}>פרטיות מלאה — הנתונים נשארים אצלך</span>
+        </div>
+        <p style={{fontSize:12.5,lineHeight:1.75,color:"#1a4a2e",margin:0}}>
+          כל המידע שהזנת בכלי זה <strong>נשמר בזיכרון הדפדפן בלבד</strong> ואינו נשלח לשום שרת, ענן, או גורם חיצוני.
+          הנתונים נמחקים כשסוגרים את הלשונית. הטיוטה שתפיק <strong>תיוצר מקומית על המסך שלך בלבד</strong>.
+          מומלץ לשמור את המסמך המוכן כקובץ PDF מקומי מיד לאחר ההפקה.
+        </p>
+      </div>
+    )}
+
+    {/* Privacy notice — lawyer / notary — Amendment 13 */}
+    {(choice==="lawyer" || (!choice && isLawyerOrNotary)) && (
+      <div style={{marginTop:12,background:"#fff8e6",border:`1px solid ${C.gold}`,borderRadius:9,padding:"12px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:7}}>
+          <span style={{fontSize:16}}>⚠️</span>
+          <span style={{fontWeight:700,color:C.gold,fontSize:13}}>הודעת פרטיות — העברת מידע לעורך דין / נוטריון</span>
+        </div>
+        <p style={{fontSize:12.5,lineHeight:1.75,color:"#5a3d00",margin:0,marginBottom:8}}>
+          בחרתם להעביר את הטיוטה לגורם מקצועי. יש לדעת כי:
+        </p>
+        <div style={{fontSize:12.5,lineHeight:1.85,color:"#5a3d00"}}>
+          <div style={{marginBottom:5}}>🔐 <strong>חיסיון עורך דין-לקוח:</strong> המידע שתעבירו לעורך הדין / נוטריון מוגן בחיסיון מקצועי מחמיר לפי חוק לשכת עורכי הדין, התשכ"א-1961. עורך הדין אינו רשאי לגלות מידע זה לצד שלישי ללא הסכמתכם.</div>
+          <div style={{marginBottom:5}}>🔐 <strong>סודיות מקצועית:</strong> עורך דין ונוטריון כפופים לחובת סודיות מקצועית מחמירה. המידע שתעבירו להם מוגן בחיסיון עורך דין-לקוח.</div>
+          <div style={{marginBottom:5}}>📤 <strong>שימו לב:</strong> כאשר אתם מדפיסים ומוסרים את הטיוטה לגורם חיצוני — המידע יוצא ממסגרת הדפדפן המקומי שלכם. ודאו שאתם מוסרים אותו ישירות לאיש המקצוע הנבחר.</div>
+          <div>📁 <strong>שמירת רישומים:</strong> עורך הדין רשאי לשמור עותק מהטיוטה בתיק הלקוח בהתאם לכללי לשכת עורכי הדין.</div>
+        </div>
+        <div style={{marginTop:10,padding:"7px 11px",background:"rgba(255,255,255,0.6)",borderRadius:6,fontSize:12,color:"#7a5500"}}>
+          🔗 לקריאה נוספת: <a href="https://www.kolzchut.org.il/he/צוואה_בפני_עדים" target="_blank" rel="noreferrer" style={{color:C.navyLight}}>כל-זכות — צוואה בפני עדים ועורך דין</a>
+        </div>
+      </div>
+    )}
+
+    {/* General info */}
+    <div style={{marginTop:12,padding:"10px 13px",background:"#f0f4fc",borderRadius:8,border:"1px solid #c0d0f0",fontSize:12.5,lineHeight:1.7,color:"#2a3a6a"}}>
+      ℹ️ <strong>עדים</strong> — 2 עדים לא-מוטבים, נוכחים בו-זמנית&ensp;|&ensp;<strong>נוטריון</strong> — ללא עדים&ensp;|&ensp;<strong>עו"ד</strong> — 2 עדים + עו"ד
+    </div>
+  </div>;
+}
+
+function aLL(a){
+  if(!a) return "הנכס";
+  const t=a.asset_type;
+  if(t==="real_estate") return "הנכס"+(a.re_address?" הידוע בכתובת "+a.re_address:a.label?' "'+a.label+'"':"");
+  if(t==="bank_account") return "כספים בחשבון בנק"+(a.bank_name?" "+a.bank_name:"")+(a.account_number?" מספר "+a.account_number:"")+(a.branch?" סניף "+a.branch:"");
+  if(t==="vehicle") return "הרכב"+(a.vehicle_make?" "+a.vehicle_make:"")+(a.vehicle_model?" "+a.vehicle_model:"")+(a.license_plate?" (רישוי "+a.license_plate+")":"");
+  if(t==="business") return "הזכויות בעסק"+(a.label?' "'+a.label+'"':"")+(a.company_number?" (ח.פ. "+a.company_number+")":"");
+  if(t==="insurance") return "פוליסת ביטוח"+(a.policy_number?" מספר "+a.policy_number:"")+(a.insurer?" אצל "+a.insurer:"");
+  if(t==="investment") return "השקעות/קופות"+(a.label?" — "+a.label:"")+(a.identifier?" ("+a.identifier+")":"");
+  if(t==="valuables") return "תכשיטים וחפצי ערך"+(a.label?" — "+a.label:"");
+  if(t==="digital") return "נכסים דיגיטליים"+(a.label?" — "+a.label:"");
+  return a.label||ASSET_TYPE_LABELS[t]||"נכס";
+}
+
+function generateSingleDoc(data, testatorIdx) {
+  const d=data, isMutual=d.will.type==="mutual";
+  const isWit=d.will.signature_mode==="witnesses";
+  const isNot=d.will.signature_mode==="authority_notary";
+  const isLaw=d.will.signature_mode==="lawyer_draft";
+  const me=(d.parties.testators||[])[testatorIdx]||{};
+  const spouse=(d.parties.testators||[])[testatorIdx===0?1:0]||{};
+  const bens=d.parties.beneficiaries||[], assets=d.assets||[];
+  const dist=d.distributions, sig=d.signature||{};
+  const credits=d.credits||[], nc=d.no_contest||{};
+  const fB=(id)=>bens.find(b=>b.beneficiary_id===id);
+  const fA=(id)=>assets.find(a=>a.asset_id===id);
+  const relPfx=(b)=>{if(!b||!b.relation||["other","organization","friend"].includes(b.relation))return "";const m={spouse:"בן/בת זוגי",child:"ילד/י",parent:"הורי",sibling:"אחי/אחותי",relative:"קרובי/ת"};return (m[b.relation]||"")+" ";};  const bN=(id)=>{const b=fB(id);if(!b)return "___";return relPfx(b)+b.full_name+(b.id_number?", ת.ז. "+b.id_number:"");};
+  const today=sig.date||new Date().toISOString().slice(0,10);
+  const city=sig.city||"______";
+  const [yr,mo,dy]=today.split("-");
+  const mos=["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+  const todayHe=parseInt(dy)+" ב"+mos[parseInt(mo)-1]+" "+yr;
+
+  const CSS=`<style>
+@import url('https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500;700;900&display=swap');
+.wd{font-family:'Frank Ruhl Libre',Georgia,serif;direction:rtl;text-align:right;color:#1a1a1a;background:white;max-width:740px;margin:0 auto;}
+.cv{min-height:500px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:3px double #1e2d5a;padding:60px 40px;margin-bottom:32px;text-align:center;page-break-after:always;}
+.ct{font-size:46px;font-weight:900;color:#1e2d5a;letter-spacing:10px;margin-bottom:12px;}
+.cs{font-size:15px;color:#666;margin-bottom:22px;}
+.cdiv{width:80px;border-top:2px solid #c8c0b0;margin:0 auto 22px;}
+.cn{font-size:26px;font-weight:700;margin:0 0 10px;}
+.cm{font-size:13px;color:#555;line-height:2.2;}
+.badge{font-size:12px;color:#6b4c9a;border:1px solid #6b4c9a;padding:3px 14px;border-radius:16px;margin-bottom:20px;display:inline-block;}
+.draft{font-size:11px;color:#888;margin-top:18px;border:1px dashed #ccc;padding:5px 14px;border-radius:4px;display:inline-block;}
+.body{padding:10px 54px 30px;}
+.pre{font-size:13.5px;line-height:2.3;margin-bottom:28px;padding:18px 22px;background:#f9f8f5;border-right:4px solid #1e2d5a;border-radius:0 8px 8px 0;}
+.sec{margin-bottom:26px;}
+.sh{font-size:15px;font-weight:700;color:#1e2d5a;border-bottom:1.5px solid #c8c0b0;padding-bottom:5px;margin-bottom:11px;}
+.sb{font-size:13px;line-height:2.15;}
+.itm{margin-bottom:9px;padding-right:14px;border-right:3px solid #e0d8cc;}
+.fb{font-size:11.5px;color:#777;margin-top:3px;padding-right:12px;}
+.sigb{margin-top:36px;padding:26px 54px;border-top:2.5px solid #1e2d5a;}
+.sigh{font-size:14px;font-weight:700;color:#1e2d5a;margin-bottom:18px;}
+.sl{margin-bottom:20px;}
+.sl .lb{font-size:12px;color:#666;margin-bottom:5px;}
+.sl .ln{border-bottom:1px solid #444;width:260px;display:inline-block;height:22px;vertical-align:bottom;}
+.wits{margin-top:24px;padding-top:18px;border-top:1px dashed #bbb;}
+.wb{margin-bottom:14px;padding:12px 14px;background:#f7f5f0;border-radius:7px;}
+.wh{font-size:12.5px;font-weight:700;color:#1e2d5a;margin-bottom:8px;}
+.lnote{font-size:10.5px;color:#999;margin-top:26px;text-align:center;font-style:italic;}
+.app{padding:16px 54px;border-top:2px dashed #c8c0b0;margin-top:20px;}
+.apph{font-size:13.5px;font-weight:700;color:#1e2d5a;margin-bottom:11px;}
+.appi{margin-bottom:7px;font-size:12.5px;padding-right:12px;border-right:3px solid #e0d8cc;}
+</style>`;
+
+  /* ── COVER ── */
+  const mutBadge=isMutual?'<div class="badge">⚖️ צוואה הדדית — עותק '+(testatorIdx===0?"א'":"ב'")+' מתוך שניים</div>':"";
+  const draftNote=isLaw?'<div class="draft">טיוטה — לעיון עורך דין בלבד, אין לחתום ללא בדיקה מקצועית</div>':"";
+  const cover='<div class="cv">'+mutBadge+'<div class="ct">צוואה</div><div class="cs">'+(isMutual?"הדדית":"אישית")+'</div><div class="cdiv"></div><div class="cn">'+(me.full_name||"___")+'</div><div class="cm">תעודת זהות: '+(me.id_number||"___")+'<br/>כתובת: '+(me.address||"___")+'<br/>תאריך עריכה: '+todayHe+'</div>'+draftNote+'</div>';
+
+  /* ── PREAMBLE ── */
+  let pre='<div class="pre">אני הח"מ <strong>'+(me.full_name||"___")+'</strong>, נושא/ת תעודת זהות מספר <strong>'+(me.id_number||"___")+'</strong>, מרחוב '+(me.address||"___")+', בהיותי בוגר/ת, בדעה צלולה וכשיר/ה מכל הבחינות לערוך צוואה זו, ';
+  if(isMutual) pre+='ובהתאם להוראות סעיף 8א לחוק הירושה, התשכ"ה-1965, מצווה/ת בזאת את אשר יעשה ברכושי לאחר מותי, מרצוני הטוב והחופשי, ללא כל איום, כפייה או השפעה בלתי הוגנת, בד בבד עם צוואת בן/בת זוגי <strong>'+(spouse.full_name||"___")+'</strong>, ת.ז. '+(spouse.id_number||"___")+', כדלקמן:';
+  else pre+='מצווה/ת בזאת את אשר יעשה ברכושי לאחר מותי, מרצוני הטוב והחופשי, ללא כל איום, כפייה או השפעה בלתי הוגנת, כדלקמן:';
+  pre+='</div>';
+
+  let sN=1, secs="";
+  const S=(h,b)=>{const n=sN++;return '<div class="sec"><div class="sh">'+n+'. '+h+'</div><div class="sb">'+b+'</div></div>';};
+
+  secs+=S("ביטול צוואות קודמות","אני מבטל/ת בזאת כל צוואה, מסמך, הוראה או עדות בעל-פה שמסרתי בעבר הנוגעים לחלוקת רכושי לאחר מותי. צוואה זו היא צוואתי האחרונה, הבלעדית והמחייבת.");
+  secs+=S("הוצאות וחובות","מנהל/ת העיזבון ישלם/תשלם תחילה, מתוך נכסי העיזבון, את הוצאות הקבורה וההספד, ניהול העיזבון, כלל החובות, המשכנתאות והמסים החלים. לאחר מכן תתבצע החלוקה כמפורט בצוואה זו.");
+
+  if(isMutual){
+    const mo=dist.mutual_options||{};
+    const fd=mo.first_death_mode==="split_now"
+      ?"עיזבוני יחולק: "+((mo.first_death_split||{}).survivor_percent||50)+"% לבן/בת זוגי <strong>"+(spouse.full_name||"___")+"</strong>; "+((mo.first_death_split||{}).children_percent||50)+"% לילדינו בחלקים שווים."
+      :"מלוא עיזבוני יועבר לבן/בת זוגי, <strong>"+(spouse.full_name||"___")+"</strong>, ת.ז. "+(spouse.id_number||"___")+".";
+    secs+=S("הוראות לאחר פטירתי — פטירה ראשונה",fd);
+    const pw=mo.survivor_powers==="limited"
+      ?"סמכות מוגבלת: מתנות עד "+((mo.gift_cap_amount||50000).toLocaleString())+" ₪/שנה. מכירת נכסים מהותיים ("+( mo.material_asset_definition||"דירה, רכב, חשבון מעל 100,000 ₪")+") טעונה הסכמת היורשים."
+      :"לבן/בת הזוג הנותר/ת תהיה סמכות מלאה לנהל, למכור, להעביר ולהשתמש בנכסי העיזבון לפי שיקול דעתו/ה, ללא הגבלה.";
+    secs+=S("סמכויות בן/בת הזוג הנותר/ת",pw);
+    secs+=S("פטירה בו-זמנית","אם שני המצווים נפטרו בתוך "+(mo.simultaneous_death_days||30)+" ימים זה מזה — כל אחד ייחשב כנפטר לפני השני, ועיזבונו יחולק ישירות ליורשים הסופיים כמפורט להלן.");
+    secs+=S("ביטול הצוואה ההדדית",'בחיי שני המצווים: ניתן לביטול בכתב עם הודעה לבן/בת הזוג. לאחר פטירת אחד: כפוף להוראות סעיף 8א(ד) לחוק הירושה, התשכ"ה-1965.');
+  }
+
+  const gifts=dist.specific_gifts||[];
+  if(gifts.length>0){
+    let gb="אני מצווה כי הנכסים המפורטים להלן יועברו לידי הזוכים הנקובים לצידם, מיד עם פטירתי:<br/><br/>";
+    gifts.forEach(g=>{
+      const a=g.gift_type==="bank_account"?fA(g.bank_account_id):fA(g.asset_id);
+      const what=g.gift_type==="asset"?aLL(a)
+        :g.gift_type==="bank_account"?aLL(a)
+        :g.gift_type==="amount"?"סך "+Number(g.amount||0).toLocaleString()+" "+(g.currency==="ILS"?"₪":g.currency)
+        :"הפריטים: "+(g.items||[]).join(", ");
+      let whoStr="";
+      if(g.multi_ben&&(g.to_beneficiaries||[]).length>0){
+        whoStr=(g.to_beneficiaries||[]).map(x=>bN(x.beneficiary_id)+(x.percent?" ("+x.percent+"%)":"")).join(", ");
+      } else {
+        whoStr=bN(g.to_beneficiary_id);
+      }
+      gb+='<div class="itm"><strong>'+what+'</strong> — יועבר ל: <strong>'+whoStr+'</strong>.';
+      // fallback
+      const ft=g.fallback_type||"person";
+      if(ft==="descendants") gb+='<div class="fb">אם המוטב נפטר/ה לפניי — יועבר לצאצאיו/ה.</div>';
+      else if(ft==="person"&&g.fallback_beneficiary_id) gb+='<div class="fb">אם המוטב נפטר/ה לפניי — יועבר ל: '+bN(g.fallback_beneficiary_id)+'.</div>';
+      else if(ft==="other"&&g.fallback_free_text) gb+='<div class="fb">אם המוטב נפטר/ה לפניי — '+g.fallback_free_text+'</div>';
+      gb+='</div>';
+    });
+    secs+=S("ייעוד נכסים ספציפיים",gb);
+  }
+
+  let rb="יתרת עיזבוני, לאחר ניכוי כל החובות, המסים, ההוצאות, וביצוע הייעודים הספציפיים שלעיל, תחולק כדלקמן:<br/><br/>";
+  if(dist.residual.mode==="equal"){
+    rb+="בחלקים שווים בין:<br/>";
+    bens.forEach(b=>{rb+='<div class="itm"><strong>'+(b.full_name||"___")+'</strong>'+(b.id_number?", ת.ז. "+b.id_number:"")+(b.address?", "+b.address:"")+'</div>';});
+  } else {
+    (dist.residual.percentages||[]).forEach(p=>{const b=fB(p.beneficiary_id);if(b)rb+='<div class="itm"><strong>'+(b.full_name||"___")+'</strong>'+(b.id_number?", ת.ז. "+b.id_number:"")+" — <strong>"+p.percent+"%</strong></div>";});
+  }
+  secs+=S(isMutual?"חלוקת יתרת העיזבון — לאחר פטירת שני המצווים":"חלוקת יתרת העיזבון",rb);
+
+  const predMap={descendants:"חלקו יועבר לצאצאיו הישירים בחלקים שווים.",survivors_only:"חלקו יחולק בין שאר הזוכים, באופן יחסי לחלקם המקורי.",per_beneficiary_substitute:"חלקו יועבר לזוכה החלופי שנקבע לו."};
+  secs+=S("זוכה שנפטר לפני המצווה","במקרה שבו אחד הזוכים על פי צוואה זו ילך לעולמו לפניי — "+(predMap[dist.predeceased_rule?.mode]||predMap.descendants));
+
+  if(d.parties.executor){
+    let eb="אני ממנה/ת בזאת את <strong>"+(d.parties.executor.full_name||"___")+"</strong>, ת.ז. "+(d.parties.executor.id_number||"___")+(d.parties.executor.address?", מרחוב "+d.parties.executor.address:"")+", לשמש כמנהל/ת עיזבוני, לפעול לאיתור נכסי העיזבון, לפרוע את חובותיי, ולחלק את הרכוש בהתאם להוראות צוואה זו.";
+    if(d.parties.alt_executor) eb+="<br/><br/>במקרה שלא יוכל/תוכל לשמש בתפקידו/ה — אני ממנה/ת כחלופה את <strong>"+(d.parties.alt_executor.full_name||"___")+"</strong>, ת.ז. "+(d.parties.alt_executor.id_number||"___")+".";
+    secs+=S("מינוי מנהל/ת עיזבון",eb);
+  }
+
+  if(dist.minor_trust?.enabled){
+    let tb="נכסים המגיעים לזוכים שטרם מלאו להם "+(dist.minor_trust.trust_age_until||21)+" שנים יוחזקו בנאמנות עד הגיעם לגיל האמור.";
+    if(d.parties.trustee) tb+=" נאמן/ת: <strong>"+(d.parties.trustee.full_name||"___")+"</strong>, ת.ז. "+(d.parties.trustee.id_number||"___")+".";
+    secs+=S("נאמנות לקטינים",tb);
+  }
+
+  if(nc.enabled){
+    const pd=nc.penalty==="equal_share"?"יחולק בין יתר הזוכים שלא התנגדו, באופן יחסי לחלקם המקורי":nc.penalty==="descendants"?"יועבר לצאצאי המתנגד":"יועבר ל: "+(nc.other_name||"___")+(nc.other_id?", ת.ז. "+nc.other_id:"");
+    secs+=S("סעיף אי-ערעור",'הנני מורה ומצווה כי הוראות צוואה זו משקפות את רצוני המלא והסופי.<br/><br/>ככל שמי מבין הזוכים יגיש התנגדות לקיומה, יערער על תקפותה, או יפתח הליך משפטי לסיכול ביצועה — אותו זוכה יאבד כל זכות לחלק בעיזבוני. החלק שהיה מיועד לו — '+pd+'.<br/><br/>סעיף זה לא יחול על התנגדות שהוגשה בתום לב מוחלט ועל עילה מוצקה לפגם חמור בצוואה, ובלבד שנקבע בפסק דין חלוט.');
+  }
+
+  secs+=S("סעיף הפרדה","אם ייפסל חלק מהוראות צוואה זו על ידי בית משפט מוסמך — יתר הוראותיה יעמדו בתוקפן המלא, כאילו לא נכתב החלק שנפסל.");
+
+  /* ── SIGNATURE (inline — continuation of document) ── */
+  let sigb='<div class="sigb"><div class="sigh">ולראיה באתי על החתום</div>';
+  sigb+='<div style="font-size:13px;margin-bottom:18px;">נחתם ביום '+todayHe+', ב'+city+'.</div>';
+  sigb+='<div class="sl"><div class="lb">חתימת המצווה/ת</div><div class="ln"></div><div style="font-size:11.5px;margin-top:4px;color:#666;">'+(me.full_name||"___")+' | ת.ז. '+(me.id_number||"___")+'</div></div>';
+
+  if(isWit){
+    const w1=d.parties.witnesses[0]||{},w2=d.parties.witnesses[1]||{};
+    sigb+='<div class="wits"><div style="font-size:13px;font-weight:700;color:#1e2d5a;margin-bottom:12px;">אישור עדים</div>';
+    sigb+='<div style="font-size:13px;line-height:2;margin-bottom:14px;">אנו החתומים מטה מאשרים כי ביום '+todayHe+' חתם/ה המצווה/ת על צוואה זו בפנינו, שנינו יחד, לאחר שהצהיר/ה בפנינו כי זו צוואתו/ה האחרונה.</div>';
+    [w1,w2].forEach((w,i)=>{
+      sigb+='<div class="wb"><div class="wh">עד '+(i+1)+'</div><div style="display:flex;gap:28px;flex-wrap:wrap;">';
+      sigb+='<div class="sl"><div class="lb">שם מלא</div><div class="ln" style="width:150px"></div><div style="font-size:11px;margin-top:3px;color:#666;">'+(w.full_name||"___")+'</div></div>';
+      sigb+='<div class="sl"><div class="lb">תעודת זהות</div><div class="ln" style="width:110px"></div><div style="font-size:11px;margin-top:3px;color:#666;">'+(w.id_number||"___")+'</div></div>';
+      sigb+='<div class="sl"><div class="lb">חתימה</div><div class="ln" style="width:160px"></div></div>';
+      sigb+='</div></div>';
+    });
+    sigb+='</div>';
+  }
+
+  if(isNot||isLaw){
+    const a=d.parties.authority||{};
+    sigb+='<div style="margin-top:18px;padding-top:14px;border-top:1px dashed #bbb;"><div style="font-size:13px;font-weight:700;color:#1e2d5a;margin-bottom:10px;">'+(a.role_label||(isNot?"נוטריון":'עורך/ת דין'))+'</div>';
+    sigb+='<div style="display:flex;gap:28px;flex-wrap:wrap;">';
+    sigb+='<div class="sl"><div class="lb">שם</div><div class="ln"></div><div style="font-size:11px;margin-top:3px;color:#666;">'+(a.name||"___")+'</div></div>';
+    sigb+='<div class="sl"><div class="lb">מספר רישיון</div><div class="ln" style="width:110px"></div></div>';
+    sigb+='<div class="sl"><div class="lb">חתימה וחותמת</div><div class="ln" style="width:180px"></div></div>';
+    sigb+='</div></div>';
+  }
+
+  sigb+='<div class="lnote">מסמך זה הופק בתכנון וניסוח צוואה — טיוטה בלבד. לתוקף משפטי מלא יש לחתום כנדרש בחוק הירושה, התשכ"ה-1965.</div></div>';
+
+  /* ── APPENDICES ── */
+  let app="";
+  if(assets.length>0){
+    app+='<div class="app"><div class="apph">נספח א\' — רשימת נכסים</div>';
+    assets.forEach((a,i)=>{app+='<div class="appi">'+(i+1)+'. '+aLL(a)+(a.notes?" — "+a.notes:"")+'</div>';});
+    app+='</div>';
+  }
+  const debts=d.debts||[];
+  if(debts.length>0){
+    app+='<div class="app" style="border-top:1px dashed #e0d8cc;"><div class="apph">נספח ב\' — חובות המצווה/ת</div>';
+    debts.forEach((db,i)=>{app+='<div class="appi" style="border-right-color:#ffd0d0;">'+(i+1)+'. '+(db.creditor_name||"___")+(db.amount?" — "+Number(db.amount).toLocaleString()+" "+(db.currency==="ILS"?"₪":db.currency):"")+'</div>';});
+    app+='</div>';
+  }
+  if(credits.length>0){
+    app+='<div class="app" style="border-top:1px dashed #e0d8cc;"><div class="apph">נספח ג\' — חובות שחייבים למצווה/ת (לגביית מנהל/ת העיזבון)</div>';
+    credits.forEach((c,i)=>{app+='<div class="appi" style="border-right-color:#c8f0c8;">'+(i+1)+'. '+(c.debtor_name||"___")+(c.amount?" — "+Number(c.amount).toLocaleString()+" "+(c.currency==="ILS"?"₪":c.currency):"")+(c.notes?" ("+c.notes+")":"")+'</div>';});
+    app+='</div>';
+  }
+
+  return CSS+'<div class="wd">'+cover+'<div class="body">'+pre+secs+'</div>'+sigb+app+'</div>';
+}
+
+function generateDoc(data) { return generateSingleDoc(data, 0); }
+
+
+function DocDisplay({ docText }) {
+  return <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:9,maxHeight:420,overflowY:"auto"}} dangerouslySetInnerHTML={{__html:docText}}/>;
+}
+
+
+function StepSendLawyer({ data, setData }) {
+  const sl = data.lawyer_send || {};
+  const up = (k,v) => setData(d=>({...d,lawyer_send:{...(d.lawyer_send||{}),[k]:v}}));
+  const [sent, setSent] = React.useState(false);
+
+  const handleSend = () => {
+    // Placeholder — will be wired to actual email/API when lawyer details are configured
+    setSent(true);
+    setTimeout(()=>setSent(false), 4000);
+  };
+
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:5}}>שליחת טיוטה לעורך דין / נוטריון</h2>
+    <div style={{background:"#eef3fc",border:`1.5px solid ${C.navyLight}`,borderRadius:9,padding:"11px 14px",marginBottom:16,fontSize:13,lineHeight:1.8}}>
+      <strong>⚖️ למה לשלוח לעורך דין?</strong><br/>
+      הכלי הכין עבורכם טיוטה מקצועית. לתוקף משפטי מלא יש לחתום עליה בנוכחות עדים / נוטריון / עורך דין כנדרש בחוק. תוכלו לשלוח את הטיוטה ישירות לעורך דין לבדיקה וחתימה.
+    </div>
+
+    <div style={{background:"#f7f5f0",borderRadius:9,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:700,color:C.navy,fontSize:13,marginBottom:10}}>🔒 הסכמה לשליחת המידע</div>
+      <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",fontSize:13,lineHeight:1.75}}>
+        <input type="checkbox" checked={sl.send||false} onChange={e=>up("send",e.target.checked)} style={{width:"auto",marginTop:3}}/>
+        <span>אני מסכים/ה לשלוח את פרטי הצוואה לעורך הדין שאבחר. <strong>הנתונים ישמרו רק בדפדפן שלי</strong> ולא יועברו לאף גורם ללא אישורי מפורש.</span>
+      </label>
+    </div>
+
+    {sl.send&&<div style={{background:"#f7f5f0",borderRadius:9,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:700,color:C.navy,fontSize:13,marginBottom:12}}>פרטי עורך הדין / נוטריון</div>
+      <FieldRow>
+        <div><Label>שם עורך הדין</Label><input value={sl.lawyer_name||""} onChange={e=>up("lawyer_name",e.target.value)} placeholder="עו״ד שם משפחה"/></div>
+        <div><Label>טלפון</Label><input value={sl.lawyer_phone||""} onChange={e=>up("lawyer_phone",e.target.value)} placeholder="050-0000000"/></div>
+      </FieldRow>
+      <div style={{marginBottom:10}}><Label>אימייל</Label><input value={sl.lawyer_email||""} onChange={e=>up("lawyer_email",e.target.value)} placeholder="lawyer@law.co.il"/></div>
+      <div style={{marginBottom:14}}><Label>הערות לעורך הדין</Label><textarea value={sl.notes||""} onChange={e=>up("notes",e.target.value)} placeholder="שאלות, הנחיות מיוחדות..." style={{minHeight:55}}/></div>
+
+      <div style={{background:"#fff8e6",border:`1px solid ${C.gold}`,borderRadius:8,padding:"10px 13px",fontSize:12.5,lineHeight:1.75,marginBottom:14}}>
+        <strong>🔜 בקרוב:</strong> ניתן יהיה לבחור עורך דין מרשימת עורכי דין שותפים ולשלוח את הטיוטה ישירות. לעת עתה — העתיקו את הטיוטה ושלחו בדואר אלקטרוני.
+      </div>
+
+      <button onClick={handleSend} style={{width:"100%",padding:"12px",borderRadius:9,border:"none",background:sent?"#2e7d32":C.navyLight,color:"white",fontWeight:700,fontSize:14,cursor:"pointer",transition:"background 0.3s"}}>
+        {sent?"✅ הטיוטה הועתקה — שלחו בדואר אלקטרוני":"📧 העתק טיוטה לשליחה לעורך דין"}
+      </button>
+    </div>}
+
+    {!sl.send&&<div style={{textAlign:"center",padding:"18px 0",color:C.textMuted,fontSize:13}}>
+      סמנו את תיבת ההסכמה למעלה כדי להמשיך<br/>
+      <span style={{fontSize:12}}>או לחצו "הבא" לדילוג לצפייה בצוואה</span>
+    </div>}
+  </div>;
+}
+
+function StepDocPreview({ data }) {
+  const isMutual = data.will.type==="mutual";
+  const [activeTab, setActiveTab] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const t1 = data.parties.testators[0]||{};
+  const t2 = data.parties.testators[1]||{};
+
+  const doc0 = useMemo(()=>generateSingleDoc(data,0),[data]);
+  const doc1 = useMemo(()=>isMutual?generateSingleDoc(data,1):"",[data,isMutual]);
+  const activeDoc = activeTab===0 ? doc0 : doc1;
+
+  const copy=()=>{navigator.clipboard.writeText(activeDoc);setCopied(true);setTimeout(()=>setCopied(false),2200);};
+  const printDoc=()=>{
+    const iframe=document.createElement("iframe");
+    iframe.style.cssText="position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;";
+    document.body.appendChild(iframe);
+    const html='<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"/><title>צוואה</title><style>@media print{body{margin:0;}}</style></head><body>'+activeDoc+'</body></html>';
+    iframe.contentDocument.open();
+    iframe.contentDocument.write(html);
+    iframe.contentDocument.close();
+    setTimeout(()=>{
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      setTimeout(()=>document.body.removeChild(iframe),2000);
+    },800);
+  };
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexWrap:"wrap",gap:8}}>
+      <div>
+        <h2 style={{fontSize:20,color:C.navy,marginBottom:3}}>{isMutual?"הצוואות מוכנות ✓":"הצוואה מוכנה ✓"}</h2>
+        <p style={{color:C.textMuted,fontSize:12}}>{isMutual?"שני עותקים נפרדים — כל אחד לחתימה נפרדת":"טיוטה מקצועית לחתימה"}</p>
+      </div>
+      <div style={{display:"flex",gap:7}}>
+        <button onClick={copy} style={{padding:"7px 12px",borderRadius:7,border:`1.5px solid ${C.navyLight}`,background:copied?C.successBg:"white",color:copied?C.success:C.navyLight,fontWeight:600,fontSize:12}}>{copied?"✓ הועתק":"📋 העתק"}</button>
+        <button onClick={printDoc} style={{padding:"7px 12px",borderRadius:7,border:"none",background:C.navy,color:"white",fontWeight:600,fontSize:12}}>🖨️ הדפס</button>
+      </div>
+    </div>
+
+    {data.output_choice==="lawyer"&&<InfoNote type="warning">טיוטה לעו"ד בלבד — אין לחתום ללא בדיקה מקצועית.</InfoNote>}
+
+    {isMutual&&<>
+      <div style={{background:"#fff8e6",border:`1px solid ${C.gold}`,borderRadius:9,padding:"10px 13px",marginBottom:12,fontSize:13,lineHeight:1.75}}>
+        <strong>⚖️ צוואה הדדית — שני מסמכים נפרדים</strong><br/>
+        על פי סעיף 8א לחוק הירושה: כל בן/בת זוג חותמ/ת על <strong>מסמך נפרד משלו/ה בלבד</strong>, בו-זמנית, בפני אותם עדים. אין לחתום שניהם על אותו דף.
+      </div>
+      <div style={{display:"flex",gap:2,marginBottom:10,background:"#f0f0f0",borderRadius:8,padding:3}}>
+        {[t1.full_name||"בן/בת זוג א'", t2.full_name||"בן/בת זוג ב'"].map((name,i)=>(
+          <button key={i} onClick={()=>setActiveTab(i)} style={{flex:1,padding:"8px 6px",borderRadius:6,border:"none",background:activeTab===i?C.navy:"transparent",color:activeTab===i?"white":C.textMuted,fontWeight:activeTab===i?700:400,fontSize:13,cursor:"pointer",transition:"all 0.2s"}}>
+            עותק {i===0?"א'":"ב'"} — {name}
+          </button>
+        ))}
+      </div>
+    </>}
+
+    <DocDisplay docText={activeDoc}/>
+
+    <div style={{marginTop:10,background:"#e8f5ee",border:`1.5px solid ${C.success}`,borderRadius:9,padding:"11px 14px",display:"flex",alignItems:"center",gap:10}}>
+      <span style={{fontSize:20}}>💾</span>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,color:C.success,fontSize:13}}>שמור גרסה זו</div>
+        <div style={{fontSize:12,color:"#1a4a2e"}}>מומלץ לשמור את הגרסה הנוכחית לפני חתימה</div>
+      </div>
+      <button onClick={()=>window._openVersions&&window._openVersions()}
+        style={{padding:"7px 13px",borderRadius:8,border:"none",background:C.success,color:"white",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+        📚 גרסאות
+      </button>
+    </div>
+    <div style={{marginTop:12,padding:12,background:"#f0f4fc",borderRadius:9,border:"1px solid #c0d0f0"}}>
+      <div style={{fontWeight:700,color:C.navy,marginBottom:7,fontSize:13}}>📌 {isMutual?"הצעדים הבאים (לכל אחד מבני הזוג)":"הצעדים הבאים"}</div>
+      <ol style={{lineHeight:2.1,paddingRight:18,fontSize:13}}>
+        {isMutual&&<li><strong>הדפס שני עותקים נפרדים</strong> — לחץ "הדפס" פעמיים (עותק א' ועותק ב')</li>}
+        {!isMutual&&<li>הדפס על נייר לבן</li>}
+        {data.will.signature_mode==="witnesses"&&!isMutual&&<li>קבע 2 עדים שאינם מוטבים — נוכחים יחד בזמן החתימה</li>}
+        {data.will.signature_mode==="witnesses"&&isMutual&&<li>קבע 2 עדים שאינם מוטבים — <strong>שני בני הזוג חותמים בו-זמנית בפני אותם עדים</strong>, כל אחד על עותקו שלו</li>}
+        {(data.will.signature_mode==="authority_notary"||data.will.signature_mode==="lawyer_draft")&&<li>קבע פגישה עם עורך דין / נוטריון — {isMutual?"שניהם יחד":"לחתימה רשמית"}</li>}
+        <li>שמור כל מקור במקום בטוח</li>
+        {isMutual&&<li>הפקד <strong>שתי הצוואות יחד</strong> ברשם הירושה — שני בני הזוג נדרשים להגיע יחד</li>}
+        {!isMutual&&<li>שקול/י הפקדה ברשם הירושה</li>}
+      </ol>
+    </div>
+  </div>;
+}
+
+function StepDeposit() {
+  return <div>
+    <div style={{textAlign:"center",marginBottom:20}}>
+      <div style={{fontSize:44,marginBottom:8}}>🏛️</div>
+      <h2 style={{fontSize:22,color:C.navy}}>הפקדה ברשם הירושה</h2>
+      <div style={{marginTop:8}}><AudioBtn label="הפקדה" audioKey="deposit"/></div>
+    </div>
+    <Accordion title="למה כדאי להפקיד?" icon="⭐" defaultOpen>
+      <p style={{marginBottom:5}}>✅ שמירה בכספת ממשלתית</p>
+      <p style={{marginBottom:5}}>✅ ראיה לאותנטיות</p>
+      <p style={{marginBottom:5}}>✅ מניעת אובדן / זיוף</p>
+      <p>✅ סודיות מלאה בחיי המצווה</p>
+    </Accordion>
+    <Accordion title="איך מפקידים?" icon="📋">
+      <p><strong>1.</strong> צוואה מקורית חתומה</p>
+      <p><strong>2.</strong> אגרה — <strong>126 ₪</strong> <em>(פטור בהפקדה ראשונה)</em></p>
+      <p><strong>3.</strong> התייצבות בלשכת רשם הירושה + ת.ז.</p>
+      <p><strong>חלופה:</strong> הפקדה מקוונת דרך gov.il</p>
+      <p><strong>הדדית:</strong> שני בני הזוג יחד + 2 עותקים</p>
+    </Accordion>
+    <Accordion title="שינוי / ביטול" icon="🔄">
+      <p>ניתן לבקש חזרה בכל עת — הרישום נמחק. קבלה חזרה ≠ ביטול.</p>
+    </Accordion>
+    <div style={{background:"#fdf4de",borderRadius:9,padding:14,border:`1px solid ${C.goldLight}`,marginTop:8}}>
+      <div style={{fontWeight:700,color:C.navy,marginBottom:7,fontSize:13}}>🌐 קישורים</div>
+      <div style={{fontSize:12,lineHeight:2.2}}>
+        <div>📌 <a href="https://www.gov.il/he/service/will_deposit" target="_blank" rel="noreferrer" style={{color:C.navyLight}}>הפקדת צוואה מקוונת — gov.il</a> <span style={{color:"#1a6e3c",fontWeight:600}}>(כולל צוואה בעדים!)</span></div>
+        <div>📌 <a href="https://inheritance.justice.gov.il/" target="_blank" rel="noreferrer" style={{color:C.navyLight}}>רשם הירושה אונליין</a></div>
+        <div>📌 <a href="https://www.kolzchut.org.il/he/הפקדת_צוואה_אצל_רשם_הירושה_במשרד_המשפטים" target="_blank" rel="noreferrer" style={{color:C.navyLight}}>כל-זכות — מדריך הפקדה</a></div>
+      </div>
+      <div style={{marginTop:6,fontSize:11.5,color:"#1a6e3c",fontWeight:600}}>✅ מ-2025: הפקדה ראשונה פטורה מאגרה!</div>
+      <div style={{marginTop:4,fontSize:11.5,color:C.error}}>⚠️ גרסה חדשה — יש למשוך תחילה את הישנה מהרשם</div>
+    </div>
+    <div style={{marginTop:18,textAlign:"center",padding:18,background:`linear-gradient(135deg,${C.navyDark},${C.navyLight})`,borderRadius:11,color:"white"}}>
+      <div style={{fontSize:26,marginBottom:7}}>✅</div>
+      <div style={{fontSize:16,fontWeight:700,marginBottom:5}}>הכלי הושלם בהצלחה!</div>
+      <div style={{fontSize:12,opacity:0.8,lineHeight:1.8}}>לאחר חתימה כדין — שמור, הפקד, ושמח שדאגת לעתיד משפחתך.</div>
+    </div>
+  </div>;
+}
+
+function StepNoContest({ data, setData }) {
+  const nc = data.no_contest || INIT_NO_CONTEST;
+  const up = (k,v) => setData(d=>({...d,no_contest:{...d.no_contest,[k]:v}}));
+  return <div>
+    <h2 style={{fontSize:20,color:C.navy,marginBottom:3}}>סעיף אי-ערעור</h2>
+    <p style={{fontSize:12,color:C.textMuted,marginBottom:10}}>(In Terrorem Clause)</p>
+    <Accordion title="מהו סעיף אי-ערעור?" icon="⚖️" defaultOpen>
+      <p style={{fontSize:13,lineHeight:1.75,marginBottom:10}}>
+        סעיף זה קובע כי יורש שיגיש ערעור משפטי על הצוואה — <strong>יאבד את חלקו</strong> לטובת גורם אחר שתקבעו.
+        מטרתו למנוע ערעורים סרק ("In Terrorem") ולהגן על רצונכם.
+      </p>
+      <div style={{background:"#eef3fc",borderRight:`4px solid ${C.navyLight}`,borderRadius:"0 8px 8px 0",padding:"10px 13px",marginBottom:10,fontSize:13,lineHeight:1.8}}>
+        <strong style={{color:C.navy}}>📋 הנוסח המשפטי שיוכנס לצוואה (כאשר הסעיף מופעל):</strong>
+        <div style={{marginTop:8,fontFamily:"'Frank Ruhl Libre',Georgia,serif",fontSize:12.5,lineHeight:2,color:"#1a1a1a",borderTop:`1px solid ${C.border}`,paddingTop:8}}>
+          <p style={{marginBottom:6}}>"הנני מורה ומצווה כי הוראות צוואה זו משקפות את רצוני המלא והסופי, ונעשו בדעה צלולה וללא כל השפעה בלתי הוגנת.</p>
+          <p style={{marginBottom:6}}>ככל שמי מבין הנהנים על פי צוואה זו, בין בעצמו ובין באמצעות אחר מטעמו, יגיש התנגדות לקיומה של צוואה זו, יערער על תקפותה, או יפתח בהליך משפטי שמטרתו לסכל את ביצועה — אותו נהנה יאבד באופן מיידי וסופי כל זכות לחלק בעיזבוני, ודינו יהיה כדין מי שמת לפניי.</p>
+          <p>למען הסר ספק, הוראה זו לא תחול במקרה שבו התנגדות הוגשה בתום לב מוחלט ובהתבסס על עילה מוצקה לקיומו של פגם חמור בצוואה (כגון זיוף מוכח או אי-כשירות מנטלית), ובלבד שהדבר ייקבע בפסק דין חלוט של בית משפט מוסמך."</p>
+        </div>
+      </div>
+      <div style={{background:"#fff8e6",border:`1px solid ${C.gold}`,borderRadius:7,padding:"9px 12px",fontSize:12.5,lineHeight:1.8,marginBottom:8}}>
+        <strong>⚠️ מגבלות משפטיות — חובה לקרוא:</strong>
+        <div style={{marginTop:7}}>
+          <div style={{marginBottom:5}}>• בתי המשפט בישראל <strong>אינם מחויבים לאכוף</strong> סעיף זה במלואו — תקפותו נקבעת בפסיקה</div>
+          <div style={{marginBottom:5}}>• אינו תקף נגד ערעורים על <strong>כשרות הצוואה עצמה</strong> — אם הצוואה תיפסל, הסעיף נפסל עמה</div>
+          <div style={{marginBottom:5}}>• ערעור <strong>בתום לב</strong> (חשד לזיוף, כשרות מנטלית) עשוי שלא להפעיל את הסעיף</div>
+          <div style={{marginBottom:5}}>• הסנקציה תופעל בעיקר נגד ערעורים <strong>קנטרניים וחסרי בסיס</strong> שמטרתם "לסחוט" ויתורים</div>
+          <div>• <strong>מומלץ בחום להתייעץ עם עו"ד</strong> לנסח סעיף זה בצוואה ולתעד את כשירותכם בעת החתימה</div>
+        </div>
+      </div>
+      <div style={{fontSize:12,color:C.textMuted,lineHeight:1.7}}>
+        📚 <em>מקור: פסיקת בית המשפט העליון, בין היתר עניין המר נ' פרס — סעיף סנקציה תקף בעיקרון, אך כפוף לביקורת שיפוטית ולחריג תום הלב.</em>
+      </div>
+    </Accordion>
+    <div style={{marginTop:14}}>
+      <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"12px 14px",background:nc.enabled?"#eef3fc":"#f7f5f0",borderRadius:9,border:`2px solid ${nc.enabled?C.navyLight:C.border}`,marginBottom:14}}>
+        <input type="checkbox" checked={nc.enabled} onChange={e=>up("enabled",e.target.checked)} style={{width:"auto",transform:"scale(1.3)"}}/>
+        <div>
+          <div style={{fontWeight:700,color:C.navy,fontSize:13}}>הוסף סעיף אי-ערעור לצוואה</div>
+          <div style={{fontSize:12,color:C.textMuted}}>יורש מערער יאבד את חלקו</div>
+        </div>
+      </label>
+      {nc.enabled&&<>
+        <div style={{marginBottom:14}}>
+          <Label>חלקו של המערער יועבר ל:</Label>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+            {[
+              {k:"equal_share", icon:"👥", t:"שאר המוטבים — בחלקים שווים", s:"החלק מתחלק שווה בשווה בין כל שאר היורשים"},
+              {k:"descendants", icon:"👶", t:"ילדי המערער", s:"חלקו יעבור לצאצאיו הישירים"},
+              {k:"other",       icon:"🎯", t:"גורם אחר שאציין", s:"אדם ספציפי, עמותה, או כל גורם אחר"},
+            ].map(({k,icon,t,s})=>(
+              <div key={k} onClick={()=>up("penalty",k)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 13px",borderRadius:9,border:`2px solid ${nc.penalty===k?C.navyLight:C.border}`,background:nc.penalty===k?"#eef3fc":"white",cursor:"pointer",transition:"all 0.2s"}}>
+                <span style={{fontSize:20,flexShrink:0}}>{icon}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13,color:nc.penalty===k?C.navyLight:C.text}}>{t}</div>
+                  <div style={{fontSize:12,color:C.textMuted,marginTop:2}}>{s}</div>
+                </div>
+                <div style={{width:18,height:18,borderRadius:"50%",border:`2px solid ${nc.penalty===k?C.navyLight:C.border}`,background:nc.penalty===k?C.navyLight:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>
+                  {nc.penalty===k&&<span style={{color:"white",fontSize:10}}>✓</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {nc.penalty==="other"&&<div style={{background:"#f7f5f0",borderRadius:9,padding:14,border:`1px solid ${C.border}`}}>
+          <p style={{fontWeight:700,color:C.navy,fontSize:13,marginBottom:10}}>פרטי הגורם החלופי</p>
+          <div style={{marginBottom:10}}><Label required>שם מלא / שם ארגון</Label><input value={nc.other_name} onChange={e=>up("other_name",e.target.value)} placeholder="שם האדם או שם העמותה"/></div>
+          <FieldRow>
+            <div><Label>ת.ז. / מספר רישום</Label><input value={nc.other_id} onChange={e=>up("other_id",e.target.value)} placeholder="מספר ת.ז. או ח.פ."/></div>
+            <div><Label>כתובת</Label><input value={nc.other_address} onChange={e=>up("other_address",e.target.value)} placeholder="כתובת מגורים / משרד"/></div>
+          </FieldRow>
+        </div>}
+        <div style={{marginTop:14,background:"#eef3fc",borderRight:`4px solid ${C.navyLight}`,borderRadius:"0 8px 8px 0",padding:"9px 13px",fontSize:12.5,lineHeight:1.75}}>
+          ℹ️ הסעיף יופיע בגוף הצוואה כסעיף מפורש הקובע את תוצאות הערעור.
+        </div>
+      </>}
+    </div>
+  </div>;
+}
+
+
+// ══════════════════════════════════════════════
+// גרסאות — Version Manager (localStorage only)
+// ══════════════════════════════════════════════
+
+const LS_KEY = "will_builder_versions";
+const MAX_VERSIONS = 10;
+
+const VersionMgr = {
+  load: () => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }
+    catch { return []; }
+  },
+  save: (versions) => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(versions)); return true; }
+    catch { return false; }
+  },
+  saveVersion: (data, meta={}) => {
+    const versions = VersionMgr.load();
+    const entry = {
+      id: Date.now().toString(),
+      saved_at: new Date().toISOString(),
+      label: meta.label || ("גרסה " + (versions.length+1)),
+      changes: meta.changes || [],
+      signed: meta.signed || false,
+      sign_method: meta.sign_method || "",
+      notes: meta.notes || "",
+      data: JSON.parse(JSON.stringify(data)),
+    };
+    const updated = [entry, ...versions].slice(0, MAX_VERSIONS);
+    VersionMgr.save(updated);
+    return entry;
+  },
+  deleteVersion: (id) => {
+    const versions = VersionMgr.load().filter(v=>v.id!==id);
+    VersionMgr.save(versions);
+  },
+  exportJSON: (data, versions) => {
+    const blob = new Blob([JSON.stringify({data, versions, exported_at: new Date().toISOString()}, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "will_backup_" + new Date().toISOString().slice(0,10) + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+  importJSON: (file, onSuccess, onError) => {
+    const r = new FileReader();
+    r.onload = e => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (!parsed.data || !parsed.versions) throw new Error("קובץ לא תקין");
+        onSuccess(parsed.data, parsed.versions);
+      } catch(err) { onError(err.message); }
+    };
+    r.readAsText(file);
+  },
+  exportICS: (intervalMonths) => {
+    const now = new Date();
+    const future = new Date(now);
+    future.setMonth(future.getMonth() + intervalMonths);
+    const fmt = d => d.toISOString().replace(/[-:]/g,"").split(".")[0]+"Z";
+    const ics = [
+      "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//WillBuilder//IL",
+      "BEGIN:VEVENT",
+      "UID:will-reminder-"+now.getTime()+"@willbuilder",
+      "DTSTART:"+fmt(future),
+      "DTEND:"+fmt(new Date(future.getTime()+3600000)),
+      "SUMMARY:תזכורת — בדיקת עדכון צוואה",
+      "DESCRIPTION:האם חל שינוי מהותי שמצריך עדכון הצוואה? לידה\, פטירה\, גירושין\, נכס חדש?",
+      "BEGIN:VALARM","TRIGGER:-P1D","ACTION:DISPLAY","DESCRIPTION:תזכורת צוואה","END:VALARM",
+      "END:VEVENT","END:VCALENDAR"
+    ].join("\r\n");
+    const blob = new Blob([ics], {type:"text/calendar"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "will_reminder.ics";
+    a.click();
+  }
+};
+
+const CHANGE_TYPES = [
+  {k:"born",    icon:"👶", label:"נולד ילד/נכד"},
+  {k:"death",   icon:"🕯️", label:"נפטר יורש"},
+  {k:"divorce", icon:"💔", label:"גירושין/נישואין"},
+  {k:"asset_new",icon:"🏠",label:"נוסף נכס"},
+  {k:"asset_sold",icon:"💰",label:"נמכר/הוסר נכס"},
+  {k:"finance",  icon:"📈",label:"שינוי פיננסי"},
+  {k:"witnesses",icon:"👥",label:"שינוי עדים"},
+  {k:"beneficiary",icon:"👤",label:"שינוי מוטבים"},
+  {k:"other",    icon:"✏️", label:"אחר"},
+];
+
+const STEP_FOR_CHANGE = {
+  born: "beneficiaries", death: "beneficiaries", divorce: "beneficiaries",
+  beneficiary: "beneficiaries", asset_new: "assets", asset_sold: "assets",
+  finance: "assets", witnesses: "witnesses", other: null,
+};
+
+function NewVersionWizard({ data, versions, onSave, onCancel, allSteps, setStepIdx }) {
+  const [changes, setChanges] = React.useState([]);
+  const [notes, setNotes] = React.useState("");
+  const [signed, setSigned] = React.useState(false);
+  const [signMethod, setSignMethod] = React.useState("");
+  const [step, setStep] = React.useState(0); // 0=changes, 1=confirm
+
+  const toggle = k => setChanges(p => p.includes(k)?p.filter(x=>x!==k):[...p,k]);
+
+  const goToChange = (k) => {
+    const stepId = STEP_FOR_CHANGE[k];
+    if (stepId) {
+      const idx = allSteps.findIndex(s=>s.id===stepId);
+      if (idx>=0) { setStepIdx(idx); onCancel(); }
+    }
+  };
+
+  if (step===0) return (
+    <div style={{padding:"20px 22px"}}>
+      <div style={{fontWeight:700,color:C.navy,fontSize:17,marginBottom:4}}>🔄 גרסה חדשה לצוואה</div>
+      <div style={{fontSize:13,color:C.textMuted,marginBottom:18}}>מה השתנה? בחרו את הסיבות לעדכון</div>
+
+      {versions.some(v=>v.signed) && (
+        <div style={{background:"#fff8e6",border:`1.5px solid ${C.gold}`,borderRadius:9,padding:"11px 14px",marginBottom:16,fontSize:13,lineHeight:1.75}}>
+          <strong>⚠️ שימו לב —</strong> יצירת גרסה חדשה <strong>אינה מבטלת</strong> את הגרסה החתומה הקודמת אוטומטית.<br/>
+          לאחר חתימת הגרסה החדשה — יש להפקידה מחדש ברשם ולהשמיד את הגרסה הישנה.
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:18}}>
+        {CHANGE_TYPES.map(({k,icon,label})=>{
+          const sel = changes.includes(k);
+          return <div key={k} onClick={()=>toggle(k)}
+            style={{display:"flex",alignItems:"center",gap:9,padding:"10px 12px",borderRadius:9,border:`2px solid ${sel?C.navyLight:C.border}`,background:sel?"#eef3fc":"white",cursor:"pointer",transition:"all 0.15s"}}>
+            <span style={{fontSize:18}}>{icon}</span>
+            <span style={{fontSize:12.5,fontWeight:sel?700:400,color:sel?C.navyLight:C.text}}>{label}</span>
+          </div>;
+        })}
+      </div>
+
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:13,fontWeight:600,color:C.navy,display:"block",marginBottom:5}}>הערות (אופציונלי)</label>
+        <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="פירוט נוסף על השינויים..." style={{minHeight:55}}/>
+      </div>
+
+      <div style={{marginBottom:18,background:"#f7f5f0",borderRadius:9,padding:"11px 13px"}}>
+        <div style={{fontWeight:600,color:C.navy,fontSize:13,marginBottom:8}}>הגרסה הקודמת — האם נחתמה?</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {[{v:"",l:"טיוטה בלבד"},{v:"witnesses",l:"חתומה בפני עדים"},{v:"notary",l:"חתומה נוטריון / עו״ד"}].map(({v,l})=>
+            <button key={v} onClick={()=>{setSigned(v!=="");setSignMethod(v);}}
+              style={{padding:"6px 12px",borderRadius:7,border:`1.5px solid ${signMethod===v?C.navyLight:C.border}`,background:signMethod===v?"#eef3fc":"white",color:signMethod===v?C.navyLight:C.text,fontSize:12,fontWeight:signMethod===v?700:400,cursor:"pointer"}}>
+              {l}
+            </button>
+          )}
+        </div>
+        {signed && <div style={{marginTop:10,fontSize:12,color:C.error,lineHeight:1.7}}>
+          ⚠️ <strong>חשוב:</strong> יש לחתום על הגרסה החדשה מחדש בפני עדים / נוטריון<br/>
+          ולהפקיד מחדש ברשם לענייני ירושה (לאחר משיכת הגרסה הישנה)
+        </div>}
+      </div>
+
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={onCancel} style={{flex:1,padding:"10px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"white",color:C.text,fontWeight:600,fontSize:13,cursor:"pointer"}}>ביטול</button>
+        <button onClick={()=>setStep(1)} style={{flex:2,padding:"10px",borderRadius:8,border:"none",background:`linear-gradient(135deg,${C.navyLight},${C.navy})`,color:"white",fontWeight:700,fontSize:13,cursor:"pointer"}}>המשך ▸</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{padding:"20px 22px"}}>
+      <div style={{fontWeight:700,color:C.navy,fontSize:17,marginBottom:16}}>📋 לאן לנווט לעדכן?</div>
+      <div style={{fontSize:13,color:C.textMuted,marginBottom:14}}>לחצו על סעיף כדי לנווט ישירות אליו:</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+        {(changes.length>0 ? CHANGE_TYPES.filter(c=>changes.includes(c.k)) : CHANGE_TYPES).map(({k,icon,label})=>{
+          const stepId = STEP_FOR_CHANGE[k];
+          const stepExists = allSteps.some(s=>s.id===stepId);
+          return <button key={k} onClick={()=>goToChange(k)}
+            style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderRadius:9,border:`1.5px solid ${C.border}`,background:"#f7f5f0",cursor:stepExists?"pointer":"default",textAlign:"right",opacity:stepExists?1:0.5}}>
+            <span style={{fontSize:18}}>{icon}</span>
+            <span style={{flex:1,fontSize:13,fontWeight:600}}>{label}</span>
+            {stepExists && <span style={{color:C.navyLight,fontSize:18}}>←</span>}
+          </button>;
+        })}
+      </div>
+      <button onClick={()=>{onSave({changes,notes,signed,sign_method:signMethod});}}
+        style={{width:"100%",padding:"12px",borderRadius:9,border:"none",background:`linear-gradient(135deg,${C.navyLight},${C.navy})`,color:"white",fontWeight:700,fontSize:14,cursor:"pointer",marginBottom:8}}>
+        💾 שמור גרסה נוכחית ועדכן
+      </button>
+      <button onClick={()=>setStep(0)} style={{width:"100%",padding:"9px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"white",color:C.text,fontWeight:600,fontSize:13,cursor:"pointer"}}>◂ חזור</button>
+    </div>
+  );
+}
+
+function VersionPanel({ versions, currentData, onRestore, onDelete, onClose, onNewVersion, onExport, onImport }) {
+  const [confirmRestore, setConfirmRestore] = React.useState(null);
+  const [importError, setImportError] = React.useState("");
+
+  const fmtDate = iso => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString("he-IL",{day:"2-digit",month:"2-digit",year:"numeric"}) +
+             " " + d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"});
+    } catch { return iso; }
+  };
+
+  return (
+    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(14,22,50,0.65)",zIndex:9000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 12px",overflowY:"auto"}}>
+      <div style={{background:"white",borderRadius:14,width:"100%",maxWidth:540,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        {/* Header */}
+        <div style={{background:`linear-gradient(135deg,${C.navyDark},${C.navy})`,borderRadius:"14px 14px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:"white",fontWeight:700,fontSize:16}}>📚 היסטוריית גרסאות</div>
+            <div style={{color:"rgba(255,255,255,0.6)",fontSize:12,marginTop:2}}>{versions.length} גרסאות שמורות (מקסימום {MAX_VERSIONS})</div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"white",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>✕ סגור</button>
+        </div>
+
+        <div style={{padding:"16px 20px"}}>
+          {/* Actions */}
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+            <button onClick={onNewVersion}
+              style={{flex:1,padding:"9px 10px",borderRadius:8,border:"none",background:`linear-gradient(135deg,${C.navyLight},${C.navy})`,color:"white",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              🔄 גרסה חדשה
+            </button>
+            <button onClick={onExport}
+              style={{flex:1,padding:"9px 10px",borderRadius:8,border:`1.5px solid ${C.navyLight}`,background:"white",color:C.navyLight,fontWeight:600,fontSize:12,cursor:"pointer"}}>
+              📤 ייצוא JSON
+            </button>
+            <label style={{flex:1,padding:"9px 10px",borderRadius:8,border:`1.5px solid ${C.navyLight}`,background:"white",color:C.navyLight,fontWeight:600,fontSize:12,cursor:"pointer",textAlign:"center"}}>
+              📥 ייבוא JSON
+              <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{
+                const f=e.target.files[0];
+                if(f) onImport(f, ()=>setImportError(""), msg=>setImportError(msg));
+                e.target.value="";
+              }}/>
+            </label>
+          </div>
+          {importError && <div style={{color:C.error,fontSize:12,marginBottom:10}}>⚠️ {importError}</div>}
+
+          {/* Reminder export */}
+          <div style={{background:"#f7f5f0",borderRadius:9,padding:"11px 13px",marginBottom:16}}>
+            <div style={{fontWeight:600,color:C.navy,fontSize:13,marginBottom:8}}>🔔 תזכורת לעדכון צוואה</div>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+              {[{m:6,l:"כל חצי שנה"},{m:12,l:"כל שנה"},{m:24,l:"כל שנתיים"},{m:36,l:"כל 3 שנים"}].map(({m,l})=>
+                <button key={m} onClick={()=>VersionMgr.exportICS(m)}
+                  style={{padding:"6px 11px",borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.navy,fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+                  📅 {l}
+                </button>
+              )}
+            </div>
+            <div style={{fontSize:11,color:C.textMuted,marginTop:6}}>לחיצה תוריד קובץ .ics לייבוא ל-Google Calendar / Outlook</div>
+          </div>
+
+          {/* Versions list */}
+          {versions.length===0
+            ? <div style={{textAlign:"center",padding:30,color:C.textMuted,fontSize:13}}>אין גרסאות שמורות עדיין<br/><span style={{fontSize:12}}>לחצו "גרסה חדשה" לשמור את המצב הנוכחי</span></div>
+            : versions.map((v,idx)=>(
+              <div key={v.id} style={{border:`1.5px solid ${idx===0?C.navyLight:C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10,background:idx===0?"#f0f4fc":"white"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                  <div>
+                    <div style={{fontWeight:700,color:C.navy,fontSize:13}}>{v.label} {idx===0&&<span style={{fontSize:10,background:C.navyLight,color:"white",padding:"1px 7px",borderRadius:10,marginRight:4}}>אחרונה</span>}</div>
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>{fmtDate(v.saved_at)}</div>
+                  </div>
+                  {v.signed&&<span style={{fontSize:10,background:"#e8f5ee",color:C.success,padding:"2px 8px",borderRadius:10,border:`1px solid ${C.success}`,fontWeight:600}}>
+                    ✅ חתומה{v.sign_method==="notary"?" — נוטריון":v.sign_method==="witnesses"?" — עדים":""}
+                  </span>}
+                </div>
+                {v.changes.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
+                  {v.changes.map(c=>{const ct=CHANGE_TYPES.find(x=>x.k===c);return ct?<span key={c} style={{fontSize:11,background:"#eef3fc",color:C.navyLight,padding:"2px 8px",borderRadius:10}}>{ct.icon} {ct.label}</span>:null;})}
+                </div>}
+                {v.notes&&<div style={{fontSize:12,color:C.textMuted,fontStyle:"italic",marginBottom:6}}>"{v.notes}"</div>}
+                <div style={{display:"flex",gap:7,marginTop:8}}>
+                  {confirmRestore===v.id
+                    ?<>
+                      <span style={{fontSize:12,color:C.error,flex:1,lineHeight:1.5}}>⚠️ המצב הנוכחי יאבד. בטוח?</span>
+                      <button onClick={()=>{onRestore(v);setConfirmRestore(null);}} style={{padding:"5px 12px",borderRadius:7,border:"none",background:C.error,color:"white",fontSize:12,fontWeight:700,cursor:"pointer"}}>כן, שחזר</button>
+                      <button onClick={()=>setConfirmRestore(null)} style={{padding:"5px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:12,cursor:"pointer"}}>ביטול</button>
+                    </>
+                    :<>
+                      <button onClick={()=>setConfirmRestore(v.id)}
+                        style={{padding:"5px 12px",borderRadius:7,border:`1.5px solid ${C.navyLight}`,background:"white",color:C.navyLight,fontSize:12,fontWeight:600,cursor:"pointer"}}>↩️ שחזר גרסה</button>
+                      <button onClick={()=>onDelete(v.id)}
+                        style={{padding:"5px 10px",borderRadius:7,border:`1px solid ${C.error}`,background:"white",color:C.error,fontSize:12,cursor:"pointer"}}>🗑️</button>
+                    </>
+                  }
+                </div>
+              </div>
+            ))
+          }
+
+          <div style={{marginTop:12,padding:"10px 13px",background:"#fff8e6",borderRadius:8,border:`1px solid ${C.gold}`,fontSize:12,lineHeight:1.75}}>
+            <strong>📋 חשוב לדעת:</strong> גרסאות חדשות <strong>אינן מבטלות</strong> אוטומטית גרסאות חתומות.<br/>
+            לביטול גרסה ישנה שהופקדה ברשם — יש <strong>למשוך אותה פיזית</strong> מהרשם לענייני ירושה ואז להפקיד את החדשה.<br/>
+            🔗 <a href="https://inheritance.justice.gov.il/" target="_blank" rel="noreferrer" style={{color:C.navyLight}}>רשם הירושה אונליין</a> &nbsp;|&nbsp;
+            <a href="https://www.gov.il/he/service/will_deposit" target="_blank" rel="noreferrer" style={{color:C.navyLight}}>הפקדת צוואה — gov.il</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WillBuilder() {
+  const [data,setData]=useState(INITIAL);
+  const [stepIdx,setStepIdx]=useState(0);
+  const [versions,setVersions]=useState(()=>VersionMgr.load());
+  const [showVersions,setShowVersions]=useState(false);
+  const [showNewVersion,setShowNewVersion]=useState(false);
+
+  const refreshVersions = () => setVersions(VersionMgr.load());
+
+  const handleSaveVersion = (meta) => {
+    VersionMgr.saveVersion(data, meta);
+    refreshVersions();
+    setShowNewVersion(false);
+    setShowVersions(false);
+  };
+
+  const handleRestore = (v) => {
+    setData(v.data);
+    setStepIdx(0);
+    setShowVersions(false);
+  };
+
+  const handleDelete = (id) => {
+    VersionMgr.deleteVersion(id);
+    refreshVersions();
+  };
+
+  const handleExport = () => VersionMgr.exportJSON(data, versions);
+
+  useEffect(() => {
+    window._openVersions = () => setShowVersions(true);
+    return () => { delete window._openVersions; };
+  }, []);
+
+  const handleImport = (file, onOk, onErr) => {
+    VersionMgr.importJSON(file,
+      (importedData, importedVersions) => {
+        setData(importedData);
+        VersionMgr.save(importedVersions);
+        refreshVersions();
+        setStepIdx(0);
+        setShowVersions(false);
+        onOk();
+      },
+      onErr
+    );
+  };
+
+  const allSteps=useMemo(()=>[
+    {id:"welcome",label:"ברוכים הבאים"},
+    {id:"will_type",label:"סוג הצוואה"},
+    {id:"signature_mode",label:"מסלול חתימה"},
+    {id:"testators",label:data.will.type==="mutual"?"פרטי המצווים":"פרטי המצווה"},
+    {id:"beneficiaries",label:"מוטבים"},
+    {id:"assets",label:"נכסים"},
+    {id:"debts",label:"חובות שלי"},
+    {id:"credits",label:"חובות לי"},
+    {id:"specific_gifts",label:"ייעוד נכסים"},
+    {id:"residual",label:"חלוקת עיזבון"},
+    {id:"predeceased",label:"מוטב שנפטר"},
+    {id:"executor",label:"מנהל עיזבון"},
+    {id:"minor_trust",label:"קטינים"},
+    ...(data.will.type==="mutual"?[{id:"mutual",label:"אפשרויות הדדית"}]:[]),
+    ...(data.will.signature_mode==="witnesses"?[{id:"witnesses",label:"עדים"}]:[]),
+    ...((data.will.signature_mode==="authority_notary"||data.will.signature_mode==="lawyer_draft")?[{id:"authority",label:'נוטריון/עו"ד'}]:[]),
+    {id:"no_contest",label:"סעיף אי-ערעור"},
+    {id:"sig",label:"פרטי חתימה"},
+    {id:"output_choice",label:"בחירת פלט"},
+    {id:"send_lawyer",label:'שלח לעו"ד'},
+    {id:"doc_preview",label:"הצוואה המוכנה"},
+    {id:"deposit",label:"הפקדה ברשם"},
+  ],[data.will.type,data.will.signature_mode]);
+
+  const cur=allSteps[stepIdx]||allSteps[0];
+  const pct=Math.round((stepIdx/(allSteps.length-1))*100);
+  const isLast=stepIdx===allSteps.length-1;
+
+  const canNext=useMemo(()=>{
+    if(cur.id==="welcome") return !!data.privacy_accepted;
+    if(cur.id==="will_type") return !!data.will.type;
+    if(cur.id==="signature_mode") return !!data.will.signature_mode;
+    if(cur.id==="testators") return data.parties.testators.every(t=>t.full_name&&t.id_number&&t.address);
+    if(cur.id==="beneficiaries") return data.parties.beneficiaries.length>0&&data.parties.beneficiaries.every(b=>b.full_name&&b.id_number);
+    if(cur.id==="residual") return data.distributions.residual.mode==="equal"||data.distributions.residual.percentages.reduce((s,p)=>s+p.percent,0)===100;
+    if(cur.id==="output_choice") return !!data.output_choice;
+    return true;
+  },[cur.id,data]);
+
+  const p={data,setData};
+  const renderStep=()=>{
+    switch(cur.id){
+      case "welcome": return <StepWelcome {...p}/>;
+      case "will_type": return <StepWillType {...p}/>;
+      case "signature_mode": return <StepSignatureMode {...p}/>;
+      case "testators": return <StepTestators {...p}/>;
+      case "beneficiaries": return <StepBeneficiaries {...p}/>;
+      case "assets": return <StepAssets {...p}/>;
+      case "debts": return <StepDebts {...p}/>;
+      case "credits": return <StepCredits {...p}/>;
+      case "specific_gifts": return <StepGifts {...p}/>;
+      case "residual": return <StepResidual {...p}/>;
+      case "predeceased": return <StepPredeceased {...p}/>;
+      case "executor": return <StepExecutor {...p}/>;
+      case "minor_trust": return <StepMinorTrust {...p}/>;
+      case "mutual": return <StepMutual {...p}/>;
+      case "witnesses": return <StepWitnesses {...p}/>;
+      case "authority": return <StepAuthority {...p}/>;
+      case "no_contest": return <StepNoContest {...p}/>;
+      case "sig": return <StepSig {...p}/>;
+      case "output_choice": return <StepOutputChoice {...p}/>;
+      case "send_lawyer": return <StepSendLawyer {...p}/>;
+      case "doc_preview": return <StepDocPreview data={data}/>;
+      case "deposit": return <StepDeposit/>;
+      default: return null;
+    }
+  };
+
+  return <>
+    <style>{GLOBAL_CSS}</style>
+    {showVersions && !showNewVersion &&
+      <VersionPanel
+        versions={versions}
+        currentData={data}
+        onRestore={handleRestore}
+        onDelete={handleDelete}
+        onClose={()=>setShowVersions(false)}
+        onNewVersion={()=>setShowNewVersion(true)}
+        onExport={handleExport}
+        onImport={handleImport}
+      />
+    }
+    {showNewVersion &&
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(14,22,50,0.65)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px 12px"}}>
+        <div style={{background:"white",borderRadius:14,width:"100%",maxWidth:480,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",maxHeight:"90vh",overflowY:"auto"}}>
+          <NewVersionWizard
+            data={data}
+            versions={versions}
+            onSave={handleSaveVersion}
+            onCancel={()=>setShowNewVersion(false)}
+            allSteps={allSteps}
+            setStepIdx={setStepIdx}
+          />
+        </div>
+      </div>
+    }
+    <div style={{fontFamily:"'Heebo','Segoe UI',Arial,sans-serif",direction:"rtl",minHeight:"100vh",background:"linear-gradient(160deg,#e8eaf6 0%,#f0ede6 55%,#ede8df 100%)"}}>
+      <div style={{background:C.navyDark,padding:"11px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <span style={{fontSize:18}}>⚖️</span>
+          <div style={{color:"white",fontWeight:700,fontSize:13,fontFamily:"'Frank Ruhl Libre',Georgia,serif"}}>תכנון וניסוח צוואה</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          {data.will.type&&<Tag color={data.will.type==="mutual"?"#6b4c9a":C.navyLight}>{data.will.type==="mutual"?"הדדית":"אישית"}</Tag>}
+          {data.will.signature_mode&&<Tag color={C.gold}>{data.will.signature_mode==="witnesses"?"עדים":data.will.signature_mode==="authority_notary"?"נוטריון":'עו"ד'}</Tag>}
+          <button onClick={()=>setShowVersions(true)}
+            style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",color:"white",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            📚 גרסאות {versions.length>0&&<span style={{background:C.gold,color:C.navyDark,borderRadius:10,padding:"0px 5px",fontSize:10,fontWeight:700}}>{versions.length}</span>}
+          </button>
+        </div>
+      </div>
+
+      {/* Progress */}
+      <div style={{background:C.navy,padding:"9px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11}}>
+          <span style={{color:"rgba(255,255,255,0.6)"}}>שלב {stepIdx+1}/{allSteps.length}</span>
+          <span style={{color:C.goldLight,fontWeight:700}}>{cur.label}</span>
+          <span style={{color:"rgba(255,255,255,0.6)"}}>{pct}%</span>
+        </div>
+        <div style={{height:3,background:"rgba(255,255,255,0.12)",borderRadius:2}}>
+          <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${C.goldLight},#e8c44a)`,borderRadius:2,transition:"width 0.4s"}}/>
+        </div>
+      </div>
+
+      {/* Step tabs */}
+      <div style={{background:C.navy,display:"flex",gap:2,padding:"0 12px 8px",overflowX:"auto"}}>
+        {allSteps.map((s,i)=><button key={s.id} onClick={()=>setStepIdx(i)}
+          style={{flexShrink:0,padding:"2px 7px",borderRadius:10,border:"none",background:i===stepIdx?C.goldLight:i<stepIdx?"rgba(255,255,255,0.22)":"rgba(255,255,255,0.06)",color:i===stepIdx?C.navyDark:i<stepIdx?"rgba(255,255,255,0.7)":"rgba(255,255,255,0.3)",fontSize:10,fontWeight:i===stepIdx?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+          {s.label}
+        </button>)}
+      </div>
+
+      {/* Content */}
+      <div style={{maxWidth:600,margin:"0 auto",padding:"16px 12px 40px"}}>
+        <div style={{background:"white",borderRadius:12,padding:"20px 20px 16px",boxShadow:"0 4px 20px rgba(30,45,90,0.10)",border:`1px solid ${C.border}`}}>
+          <div style={{maxHeight:"calc(100vh - 260px)",overflowY:"auto",paddingLeft:1}}>
+            {renderStep()}
+          </div>
+          <div style={{display:"flex",gap:10,marginTop:18,justifyContent:"space-between",borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+            <button onClick={()=>setStepIdx(i=>Math.max(0,i-1))} disabled={stepIdx===0}
+              style={{padding:"9px 18px",borderRadius:8,border:`1.5px solid ${C.border}`,background:"white",color:stepIdx===0?C.textLight:C.text,fontSize:13,fontWeight:600,opacity:stepIdx===0?0.4:1,cursor:stepIdx===0?"default":"pointer"}}>◂ חזור</button>
+            <button onClick={()=>setStepIdx(i=>Math.min(allSteps.length-1,i+1))} disabled={!canNext&&!isLast}
+              style={{padding:"9px 22px",borderRadius:8,border:"none",background:(!canNext&&!isLast)?"#b0b8cc":`linear-gradient(135deg,${C.navyLight},${C.navy})`,color:"white",fontSize:13,fontWeight:700,cursor:(!canNext&&!isLast)?"default":"pointer",boxShadow:(!canNext&&!isLast)?"none":"0 4px 12px rgba(30,45,90,0.28)"}}>
+              {isLast?"✓ סיום":cur.id==="doc_preview"?"המשך ▸":"המשך ▸"}
+            </button>
+          </div>
+        </div>
+        <div style={{marginTop:12,textAlign:"center",fontSize:11,color:C.textMuted}}>⚖️ כלי זה מיועד לסיוע בהכנת טיוטה בלבד — אין בו ייעוץ משפטי.</div>
+      </div>
+    </div>
+  </>;
+}
+
+const domRoot = ReactDOM.createRoot(document.getElementById("root"));
+domRoot.render(React.createElement(WillBuilder));
+document.getElementById("loading").style.display="none";
+  </script>
+</body>
+</html>
